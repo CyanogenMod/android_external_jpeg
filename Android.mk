@@ -12,7 +12,7 @@ LOCAL_SRC_FILES := \
 	jdpostct.c jdsample.c jdtrans.c jerror.c jfdctflt.c jfdctfst.c \
 	jfdctint.c jidctflt.c jidctred.c jquant1.c \
 	jquant2.c jutils.c jmemmgr.c \
-	jmemnobs.c
+	jmem-android.c
 
 # the assembler is only for the ARM version, don't break the Linux sim
 ifneq ($(TARGET_ARCH),arm)

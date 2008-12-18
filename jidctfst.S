@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <machine/cpu-features.h>
 
     .text
     .align
@@ -28,10 +29,6 @@
 //                 short*                  coef_block,
 //                 unsigned char*          output_buf,
 //                 int                     output_col)
-
-#if defined(__ARM_ARCH_6__) || defined(__ARM_ARCH_6J__)
-#define ARMv6 1
-#endif
 
 #define  local_TMP0123       sp
 #define  local_TMP0          [sp, #0]
@@ -66,7 +63,7 @@
 
 
 jpeg_idct_ifast:
-    pld     [r2, #0]
+    PLD     (r2, #0)
     stmdb   sp!, {r4,r5, r6,r7, r8,r9, r10,r11, r12,lr}
     ldr     r4, [sp, #4*10]
     sub     sp, #local_SIZE
@@ -106,13 +103,25 @@ VLoopHead:
 
     ldr      r9, [r10, #QY(4)]
     ldr      r8, [r10, #QY(0)]
+#if __ARM_HAVE_HALFWORD_MULTIPLY
     smulbb   r4, r9, r4
     smlabb   r0, r8, r0, r4
+#else
+    mul      r4, r9, r4
+    mul      r0, r8, r0
+    add      r0, r4
+#endif
     ldr      r9, [r10, #QY(6)]
     ldr      r8, [r10, #QY(2)]
     sub      r4, r0, r4, lsl #1
+#if __ARM_HAVE_HALFWORD_MULTIPLY
     smulbb   r6, r9, r6
     smlabb   r2, r8, r2, r6
+#else
+    mul      r6, r9, r6
+    mul      r2, r8, r2
+    add      r2, r6
+#endif
 
     // tmp13 = tmp1 + tmp3                                       (r2)
     // tmp12 = MULTIPLY(tmp1 - tmp3, FIX_1_414213562) - tmp13    (r6)
@@ -148,12 +157,27 @@ VLoopHead:
 
     ldr     r2, [r10, #QY(1)]
     ldr     r9, [r10, #QY(5)]
+#if __ARM_HAVE_HALFWORD_MULTIPLY
     smulbb  r1, r2, r1
+#else
+    mul     r1, r2, r1
+#endif
     ldr     r2, [r10, #QY(3)]
+#if __ARM_HAVE_HALFWORD_MULTIPLY
     smulbb  r5, r9, r5
+#else
+    mul     r5, r9, r5
+#endif
     ldr     r9, [r10, #QY(7)]
+#if __ARM_HAVE_HALFWORD_MULTIPLY
     smlabb  r0, r2, r3, r5
     smlabb  r4, r9, r7, r1
+#else
+    mul     r0, r2, r3
+    add     r0, r5
+    mul     r4, r9, r7
+    add     r4, r1
+#endif
     rsb  r2, r0, r5, lsl #1
     rsb  r6, r4, r1, lsl #1
 
@@ -232,7 +256,7 @@ VLoopHead:
 
 HLoopStart:
     // reset pointers
-    pld     [sp, #off_WORKSPACE]
+    PLD     (sp, #off_WORKSPACE)
     add     ip, sp, #off_WORKSPACE
     ldr     r10, local_RANGE_TABLE
 
@@ -244,7 +268,7 @@ HLoopTail:
     str      r0, local_OUTPUT_BUF
     add      fp, r2, r1
 
-    pld      [ip, #32]
+    PLD      (ip, #32)
     ldmia    ip!, {r0-r7}
 
     cmp      r1, #0
@@ -352,7 +376,7 @@ HLoopHead:
     add    r3, r8, r3, asr #5
     add    r4, r8, r4, asr #5
 
-#ifdef ARMv6
+#if __ARM_ARCH__ >= 6
     usat   r0, #8, r0
     usat   r1, #8, r1
     usat   r2, #8, r2
@@ -431,7 +455,7 @@ HLoopTailZero:
     mov      r0, r0, asr #5
     add      r0, #128
 
-#ifdef ARMv6
+#if __ARM_ARCH__ >= 6
     usat     r0, #8, r0
 #else
     cmp      r0, #255
