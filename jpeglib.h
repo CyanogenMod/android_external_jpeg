@@ -631,6 +631,13 @@ struct jpeg_decompress_struct {
   struct jpeg_upsampler * upsample;
   struct jpeg_color_deconverter * cconvert;
   struct jpeg_color_quantizer * cquantize;
+
+  /* Can't put #ifdef QC_LIBS_SUPPORTED around this because libjpeg
+   * clients do not know of this variable. The way jpeglib.h defines the
+   * jpeg_create_decompress macro, clients will need to define QC_LIBS_SUPPORTED
+   * otherwise, it will result in struct size mismatch.
+   */
+  struct jpeg_qc_routines * qcroutines;
 };
 
 
@@ -1081,6 +1088,7 @@ struct jpeg_inverse_dct { long dummy; };
 struct jpeg_upsampler { long dummy; };
 struct jpeg_color_deconverter { long dummy; };
 struct jpeg_color_quantizer { long dummy; };
+struct jpeg_qc_routines { long dummy; };
 #endif /* JPEG_INTERNALS */
 #endif /* INCOMPLETE_TYPES_BROKEN */
 
