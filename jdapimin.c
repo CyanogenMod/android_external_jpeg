@@ -25,11 +25,11 @@
 
 #include <dlfcn.h>
 
-#define CHECK_DL_ERROR(cinfo) \
+#define CHECK_DL_ERROR(cinfo, funcstr) \
   { \
     char *error; \
     if ((error = (char*)dlerror()) != NULL)  { \
-      ERREXITS(cinfo, JERR_SHARED_LIB_LOAD_FAIL, error); \
+      ERREXITS(cinfo, JERR_SHARED_LIB_LOAD_FAIL, funcstr); \
     } \
   }
 
@@ -39,7 +39,7 @@
 LOCAL(void)
 load_qc_shared_lib (j_decompress_ptr cinfo)
 {
-  void *handle;
+  void *handle = NULL;
   void *qcroutines;
 
   /* Allocate memory for function table */
@@ -47,31 +47,34 @@ load_qc_shared_lib (j_decompress_ptr cinfo)
 				SIZEOF(struct jpeg_qc_routines));
   cinfo->qcroutines = (struct jpeg_qc_routines *) qcroutines;
 
+  /* Clear any previous errors */
+  dlerror();
+
   /* Load QC Shared library */
   handle = dlopen (QC_SHARED_LIB_NAME, RTLD_NOW);
 
   if (!handle) {
-    ERREXITS(cinfo, JERR_SHARED_LIB_LOAD_FAIL, dlerror());
+    ERREXITS(cinfo, JERR_SHARED_LIB_LOAD_FAIL, QC_SHARED_LIB_NAME);
   } else {
     cinfo->qcroutines->lib_handle = handle;
 
     /* Load QC shared library functions */
     cinfo->qcroutines->huff_extend = (huff_extend_method_ptr)dlsym(handle, "jpegd_engine_sw_huff_extend");
-    CHECK_DL_ERROR(cinfo);
+    CHECK_DL_ERROR(cinfo, "jpegd_engine_sw_huff_extend");
     cinfo->qcroutines->idct_1x1    = (idct_1x1_method_ptr)dlsym(handle, "jpegd_engine_sw_idct_1x1");
-    CHECK_DL_ERROR(cinfo);
+    CHECK_DL_ERROR(cinfo, "jpegd_engine_sw_idct_1x1");
     cinfo->qcroutines->idct_2x2    = (idct_2x2_method_ptr)dlsym(handle, "jpegd_engine_sw_idct_2x2");
-    CHECK_DL_ERROR(cinfo);
+    CHECK_DL_ERROR(cinfo, "jpegd_engine_sw_idct_2x2");
     cinfo->qcroutines->idct_4x4    = (idct_4x4_method_ptr)dlsym(handle, "jpegd_engine_sw_idct_4x4");
-    CHECK_DL_ERROR(cinfo);
+    CHECK_DL_ERROR(cinfo, "jpegd_engine_sw_idct_4x4");
     cinfo->qcroutines->idct_8x8    = (idct_8x8_method_ptr)dlsym(handle, "jpegd_engine_sw_idct_8x8");
-    CHECK_DL_ERROR(cinfo);
+    CHECK_DL_ERROR(cinfo, "jpegd_engine_sw_idct_8x8");
     cinfo->qcroutines->yuv444semiplanar_to_rgb565  = (yuv444semiplanar_to_rgb565_method_ptr)dlsym(handle, "yvu2rgb565");
-    CHECK_DL_ERROR(cinfo);
+    CHECK_DL_ERROR(cinfo, "yvu2rgb565");
     cinfo->qcroutines->yuv422semiplanar_to_rgb565  = (yuv422semiplanar_to_rgb565_method_ptr)dlsym(handle, "yyvu2rgb565");
-    CHECK_DL_ERROR(cinfo);
+    CHECK_DL_ERROR(cinfo, "yyvu2rgb565");
     cinfo->qcroutines->yuv422planar_to_rgb565      = (yuv422planar_to_rgb565_method_ptr)dlsym(handle, "vYUV12toRGB565");
-    CHECK_DL_ERROR(cinfo);
+    CHECK_DL_ERROR(cinfo, "vYUV12toRGB565");
   }
 }
 

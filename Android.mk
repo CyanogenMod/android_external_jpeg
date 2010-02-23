@@ -7,7 +7,7 @@ include $(CLEAR_VARS)
 
 # Set QC_LIBS_AVAILABLE to true if QC proprietary library libjpeg-rvct is
 # available.  QC libs are only supported on Scorpion processors.
-QC_LIBS_AVAILABLE := false
+QC_LIBS_AVAILABLE := true
 
 # Verify that QC libs is supported for this target.
 ifneq "$(TARGET_ARCH_VARIANT)" "armv7-a"
