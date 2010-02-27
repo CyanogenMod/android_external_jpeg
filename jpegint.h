@@ -2,6 +2,7 @@
  * jpegint.h
  *
  * Copyright (C) 1991-1997, Thomas G. Lane.
+ * Copyright (c) 2010, Code Aurora Forum. All rights reserved.
  * This file is part of the Independent JPEG Group's software.
  * For conditions of distribution and use, see the accompanying README file.
  *
@@ -263,9 +264,6 @@ struct jpeg_color_quantizer {
 #ifdef QC_LIBS_SUPPORTED
 /* QC routines */
 
-/* Huffman extension */
-typedef JMETHOD(INT32, huff_extend_method_ptr, (INT32 nResidue, INT32 nResidueSize));
-
 /* IDCT routines */
 typedef JMETHOD(void, idct_1x1_method_ptr, (INT16 * coeffPtr, INT16 * samplePtr, INT32 stride));
 typedef JMETHOD(void, idct_2x2_method_ptr, (INT16 * coeffPtr, INT16 * samplePtr, INT32 stride));
@@ -287,10 +285,19 @@ typedef JMETHOD(void, yuv422planar_to_rgb565_method_ptr, (JDIMENSION nLineWidth,
                           UINT8 * pCbLine,
                           UINT8 * pCrLine,
                           UINT8 * pTempBuffer));
+typedef JMETHOD(void, yuv444planar_to_rgb888_method_ptr, (JDIMENSION nLineWidth,
+                          UINT8 * pRGB888Line,
+                          UINT8 * pLumaLine,
+                          UINT8 * pCbLine,
+                          UINT8 * pCrLine,
+                          UINT8 * pTempBuffer));
+typedef JMETHOD(void, yuv422semiplanar_to_rgb888_method_ptr, (UINT8 * pLumaLine,
+                       UINT8 * pChromaLine,
+                       UINT8 * pRGB888Line,
+                       JDIMENSION nLineWidth));
 
 struct jpeg_qc_routines {
   void* lib_handle;
-  huff_extend_method_ptr huff_extend;
   idct_1x1_method_ptr    idct_1x1;
   idct_2x2_method_ptr    idct_2x2;
   idct_4x4_method_ptr    idct_4x4;
@@ -298,6 +305,8 @@ struct jpeg_qc_routines {
   yuv444semiplanar_to_rgb565_method_ptr yuv444semiplanar_to_rgb565;
   yuv422semiplanar_to_rgb565_method_ptr yuv422semiplanar_to_rgb565;
   yuv422planar_to_rgb565_method_ptr     yuv422planar_to_rgb565;
+  yuv444planar_to_rgb888_method_ptr 	yuv444planar_to_rgb888;
+  yuv422semiplanar_to_rgb888_method_ptr yuv422semiplanar_to_rgb888;
 };
 #endif
 

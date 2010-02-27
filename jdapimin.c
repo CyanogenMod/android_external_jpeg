@@ -2,6 +2,7 @@
  * jdapimin.c
  *
  * Copyright (C) 1994-1998, Thomas G. Lane.
+ * Copyright (c) 2010, Code Aurora Forum. All rights reserved.
  * This file is part of the Independent JPEG Group's software.
  * For conditions of distribution and use, see the accompanying README file.
  *
@@ -59,22 +60,33 @@ load_qc_shared_lib (j_decompress_ptr cinfo)
     cinfo->qcroutines->lib_handle = handle;
 
     /* Load QC shared library functions */
-    cinfo->qcroutines->huff_extend = (huff_extend_method_ptr)dlsym(handle, "jpegd_engine_sw_huff_extend");
-    CHECK_DL_ERROR(cinfo, "jpegd_engine_sw_huff_extend");
-    cinfo->qcroutines->idct_1x1    = (idct_1x1_method_ptr)dlsym(handle, "jpegd_engine_sw_idct_1x1");
+    cinfo->qcroutines->idct_1x1    		   = (idct_1x1_method_ptr)
+						       dlsym(handle, "jpegd_engine_sw_idct_1x1");
     CHECK_DL_ERROR(cinfo, "jpegd_engine_sw_idct_1x1");
-    cinfo->qcroutines->idct_2x2    = (idct_2x2_method_ptr)dlsym(handle, "jpegd_engine_sw_idct_2x2");
+    cinfo->qcroutines->idct_2x2    		   = (idct_2x2_method_ptr)
+						       dlsym(handle, "jpegd_engine_sw_idct_2x2");
     CHECK_DL_ERROR(cinfo, "jpegd_engine_sw_idct_2x2");
-    cinfo->qcroutines->idct_4x4    = (idct_4x4_method_ptr)dlsym(handle, "jpegd_engine_sw_idct_4x4");
+    cinfo->qcroutines->idct_4x4    		   = (idct_4x4_method_ptr)
+						       dlsym(handle, "jpegd_engine_sw_idct_4x4");
     CHECK_DL_ERROR(cinfo, "jpegd_engine_sw_idct_4x4");
-    cinfo->qcroutines->idct_8x8    = (idct_8x8_method_ptr)dlsym(handle, "jpegd_engine_sw_idct_8x8");
+    cinfo->qcroutines->idct_8x8    		   = (idct_8x8_method_ptr)
+						       dlsym(handle, "jpegd_engine_sw_idct_8x8");
     CHECK_DL_ERROR(cinfo, "jpegd_engine_sw_idct_8x8");
-    cinfo->qcroutines->yuv444semiplanar_to_rgb565  = (yuv444semiplanar_to_rgb565_method_ptr)dlsym(handle, "yvu2rgb565");
+    cinfo->qcroutines->yuv444semiplanar_to_rgb565  = (yuv444semiplanar_to_rgb565_method_ptr)
+                                                       dlsym(handle, "yvu2rgb565");
     CHECK_DL_ERROR(cinfo, "yvu2rgb565");
-    cinfo->qcroutines->yuv422semiplanar_to_rgb565  = (yuv422semiplanar_to_rgb565_method_ptr)dlsym(handle, "yyvu2rgb565");
+    cinfo->qcroutines->yuv422semiplanar_to_rgb565  = (yuv422semiplanar_to_rgb565_method_ptr)
+						       dlsym(handle, "yyvu2rgb565");
     CHECK_DL_ERROR(cinfo, "yyvu2rgb565");
-    cinfo->qcroutines->yuv422planar_to_rgb565      = (yuv422planar_to_rgb565_method_ptr)dlsym(handle, "vYUV12toRGB565");
+    cinfo->qcroutines->yuv422planar_to_rgb565      = (yuv422planar_to_rgb565_method_ptr)
+						       dlsym(handle, "vYUV12toRGB565");
     CHECK_DL_ERROR(cinfo, "vYUV12toRGB565");
+    cinfo->qcroutines->yuv444planar_to_rgb888      = (yuv444planar_to_rgb888_method_ptr)
+						       dlsym(handle, "vYUVtoRGB888");
+    CHECK_DL_ERROR(cinfo, "vYUVtoRGB888");
+    cinfo->qcroutines->yuv422semiplanar_to_rgb888  = (yuv422semiplanar_to_rgb888_method_ptr)
+						       dlsym(handle, "yyvu2rgb888");
+    CHECK_DL_ERROR(cinfo, "yyvu2rgb888");
   }
 }
 
@@ -87,7 +99,6 @@ unload_qc_shared_lib (j_decompress_ptr cinfo)
   if ((cinfo->qcroutines) && (cinfo->qcroutines->lib_handle)) {
     dlclose(cinfo->qcroutines->lib_handle);
     cinfo->qcroutines->lib_handle 		   = NULL;
-    cinfo->qcroutines->huff_extend 		   = NULL;
     cinfo->qcroutines->idct_1x1    		   = NULL;
     cinfo->qcroutines->idct_2x2    		   = NULL;
     cinfo->qcroutines->idct_4x4    		   = NULL;
@@ -95,6 +106,8 @@ unload_qc_shared_lib (j_decompress_ptr cinfo)
     cinfo->qcroutines->yuv444semiplanar_to_rgb565  = NULL;
     cinfo->qcroutines->yuv422semiplanar_to_rgb565  = NULL;
     cinfo->qcroutines->yuv422planar_to_rgb565      = NULL;
+    cinfo->qcroutines->yuv444planar_to_rgb888      = NULL;
+    cinfo->qcroutines->yuv422semiplanar_to_rgb888  = NULL;
   }
 }
 #endif
