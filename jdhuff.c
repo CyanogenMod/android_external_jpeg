@@ -433,9 +433,6 @@ jpeg_huff_decode (bitread_working_state * state,
 }
 
 
-#ifdef QC_LIBS_SUPPORTED
-#define HUFF_EXTEND(x,s)  (cinfo->qcroutines->huff_extend(x,s))
-#else
 /*
  * Figure F.12: extend sign bit.
  * On some machines, a shift and add will be faster than a table lookup.
@@ -461,7 +458,6 @@ static const int extend_offset[16] = /* entry n is (-1 << n) + 1 */
 
 #endif /* AVOID_TABLES */
 
-#endif /* QC_LIBS_SUPPORTED */
 
 /*
  * Check for a restart marker & resynchronize decoder.

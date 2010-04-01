@@ -23,9 +23,6 @@ typedef struct {
   int * Cb_b_tab;		/* => table for Cb to B conversion */
   INT32 * Cr_g_tab;		/* => table for Cr to G conversion */
   INT32 * Cb_g_tab;		/* => table for Cb to G conversion */
-#ifdef QC_LIBS_SUPPORTED
-  JSAMPROW * chroma_line_buf;		/* => Interleaved Chroma buffer for QC color conversion */
-#endif /* QC_LIBS_SUPPORTED */
 } my_color_deconverter;
 
 typedef my_color_deconverter * my_cconvert_ptr;
@@ -127,22 +124,6 @@ build_ycc_rgb_table (j_decompress_ptr cinfo)
   }
 }
 
-#ifdef QC_LIBS_SUPPORTED
-/*
- * Allocate interleaved chroma buffer (QC buffer format) for
- * YCC->RGB colorspace conversion
- */
-LOCAL (void)
-alloc_interleaved_chroma_buffer (j_decompress_ptr cinfo)
-{
-  my_cconvert_ptr cconvert = (my_cconvert_ptr) cinfo->cconvert;
-  cconvert->chroma_line_buf = (JSAMPROW*)(*cinfo->mem->alloc_sarray)
-                        ((j_common_ptr) cinfo, JPOOL_IMAGE,
-                        cinfo->output_width << 1, 1);  // One row
-}
-#endif /* QC_LIBS_SUPPORTED */
-
-
 /*
  * Convert some rows of samples to the output colorspace.
  *
@@ -240,41 +221,6 @@ METHODDEF(void)
 ycc_rgb_565_convert (j_decompress_ptr cinfo,
          JSAMPIMAGE input_buf, JDIMENSION input_row,
          JSAMPARRAY output_buf, int num_rows)
-#ifdef QC_LIBS_SUPPORTED
-/*
- * Converts YCC->RGB565 using QC proprietary library
- * Assumes alloc_interleaved_chroma_buffer() has been called
- */
-{
-  my_cconvert_ptr cconvert = (my_cconvert_ptr) cinfo->cconvert;
-  JSAMPROW inptr0, inptr1, inptr2, inCbCr;
-  JSAMPROW outptr;
-  JDIMENSION row, col;
-  row = num_rows;
-
-  for (row = 0; row < (JDIMENSION)num_rows; row++)
-  {
-    inptr0     = input_buf[0][input_row];
-    inptr1     = input_buf[1][input_row];
-    inptr2     = input_buf[2][input_row];
-    inCbCr     = cconvert->chroma_line_buf[0];
-
-    input_row++;
-    outptr = *output_buf++;
-
-    for (col = 0; col < cinfo->output_width; col++)
-    {
-      *inCbCr++ = *inptr2++;
-      *inCbCr++ = *inptr1++;
-    }
-
-    cinfo->qcroutines->yuv444semiplanar_to_rgb565((UINT8*)  inptr0,
-                    (UINT8*) cconvert->chroma_line_buf[0],
-                    (UINT8*) outptr,
-                     cinfo->output_width);
-  }
-}
-#else
 {
   my_cconvert_ptr cconvert = (my_cconvert_ptr) cinfo->cconvert;
   register int y, cb, cr;
@@ -342,7 +288,6 @@ ycc_rgb_565_convert (j_decompress_ptr cinfo,
     }
   }
 }
-#endif /* QC_LIBS_SUPPORTED */
 
 METHODDEF(void)
 ycc_rgb_565D_convert (j_decompress_ptr cinfo,
@@ -886,11 +831,7 @@ jinit_color_deconverter (j_decompress_ptr cinfo)
     if (cinfo->dither_mode == JDITHER_NONE) {
       if (cinfo->jpeg_color_space == JCS_YCbCr) {
         cconvert->pub.color_convert = ycc_rgb_565_convert;
-#ifdef QC_LIBS_SUPPORTED
-        alloc_interleaved_chroma_buffer(cinfo);
-#else
         build_ycc_rgb_table(cinfo);
-#endif /* QC_LIBS_SUPPORTED */
       } else if (cinfo->jpeg_color_space == JCS_GRAYSCALE) {
         cconvert->pub.color_convert = gray_rgb_565_convert;
       } else if (cinfo->jpeg_color_space == JCS_RGB) {
@@ -900,15 +841,8 @@ jinit_color_deconverter (j_decompress_ptr cinfo)
     } else {
       /* only ordered dither is supported */
       if (cinfo->jpeg_color_space == JCS_YCbCr) {
-#ifdef QC_LIBS_SUPPORTED
-        /* If QC libs are supported, use QC routine even
-         * if dithering option is selected. */
-        cconvert->pub.color_convert = ycc_rgb_565_convert;
-	alloc_interleaved_chroma_buffer(cinfo);
-#else
         cconvert->pub.color_convert = ycc_rgb_565D_convert;
         build_ycc_rgb_table(cinfo);
-#endif /* QC_LIBS_SUPPORTED */
       } else if (cinfo->jpeg_color_space == JCS_GRAYSCALE) {
         cconvert->pub.color_convert = gray_rgb_565D_convert;
       } else if (cinfo->jpeg_color_space == JCS_RGB) {

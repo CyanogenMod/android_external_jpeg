@@ -103,7 +103,6 @@ JMESSAGE(JERR_QUANT_COMPONENTS,
 	 "Cannot quantize more than %d color components")
 JMESSAGE(JERR_QUANT_FEW_COLORS, "Cannot quantize to fewer than %d colors")
 JMESSAGE(JERR_QUANT_MANY_COLORS, "Cannot quantize to more than %d colors")
-JMESSAGE(JERR_SHARED_LIB_LOAD_FAIL, "Failed to load symbol %s")
 JMESSAGE(JERR_SOF_DUPLICATE, "Invalid JPEG file structure: two SOF markers")
 JMESSAGE(JERR_SOF_NO_SOS, "Invalid JPEG file structure: missing SOS marker")
 JMESSAGE(JERR_SOF_UNSUPPORTED, "Unsupported JPEG process: SOF type 0x%02x")

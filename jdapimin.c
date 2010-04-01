@@ -19,82 +19,7 @@
 #define JPEG_INTERNALS
 #include "jinclude.h"
 #include "jpeglib.h"
-#include "jerror.h"
 
-#ifdef QC_LIBS_SUPPORTED
-
-#include <dlfcn.h>
-
-#define CHECK_DL_ERROR(cinfo) \
-  { \
-    char *error; \
-    if ((error = (char*)dlerror()) != NULL)  { \
-      ERREXITS(cinfo, JERR_SHARED_LIB_LOAD_FAIL, error); \
-    } \
-  }
-
-/*
- * Load the shared library
- */
-LOCAL(void)
-load_qc_shared_lib (j_decompress_ptr cinfo)
-{
-  void *handle;
-  void *qcroutines;
-
-  /* Allocate memory for function table */
-  qcroutines = (*cinfo->mem->alloc_small) ((j_common_ptr) cinfo, JPOOL_PERMANENT,
-				SIZEOF(struct jpeg_qc_routines));
-  cinfo->qcroutines = (struct jpeg_qc_routines *) qcroutines;
-
-  /* Load QC Shared library */
-  handle = dlopen (QC_SHARED_LIB_NAME, RTLD_NOW);
-
-  if (!handle) {
-    ERREXITS(cinfo, JERR_SHARED_LIB_LOAD_FAIL, dlerror());
-  } else {
-    cinfo->qcroutines->lib_handle = handle;
-
-    /* Load QC shared library functions */
-    cinfo->qcroutines->huff_extend = (huff_extend_method_ptr)dlsym(handle, "jpegd_engine_sw_huff_extend");
-    CHECK_DL_ERROR(cinfo);
-    cinfo->qcroutines->idct_1x1    = (idct_1x1_method_ptr)dlsym(handle, "jpegd_engine_sw_idct_1x1");
-    CHECK_DL_ERROR(cinfo);
-    cinfo->qcroutines->idct_2x2    = (idct_2x2_method_ptr)dlsym(handle, "jpegd_engine_sw_idct_2x2");
-    CHECK_DL_ERROR(cinfo);
-    cinfo->qcroutines->idct_4x4    = (idct_4x4_method_ptr)dlsym(handle, "jpegd_engine_sw_idct_4x4");
-    CHECK_DL_ERROR(cinfo);
-    cinfo->qcroutines->idct_8x8    = (idct_8x8_method_ptr)dlsym(handle, "jpegd_engine_sw_idct_8x8");
-    CHECK_DL_ERROR(cinfo);
-    cinfo->qcroutines->yuv444semiplanar_to_rgb565  = (yuv444semiplanar_to_rgb565_method_ptr)dlsym(handle, "yvu2rgb565");
-    CHECK_DL_ERROR(cinfo);
-    cinfo->qcroutines->yuv422semiplanar_to_rgb565  = (yuv422semiplanar_to_rgb565_method_ptr)dlsym(handle, "yyvu2rgb565");
-    CHECK_DL_ERROR(cinfo);
-    cinfo->qcroutines->yuv422planar_to_rgb565      = (yuv422planar_to_rgb565_method_ptr)dlsym(handle, "vYUV12toRGB565");
-    CHECK_DL_ERROR(cinfo);
-  }
-}
-
-/*
- * Unload the QC shared library
- */
-LOCAL(void)
-unload_qc_shared_lib (j_decompress_ptr cinfo)
-{
-  if ((cinfo->qcroutines) && (cinfo->qcroutines->lib_handle)) {
-    dlclose(cinfo->qcroutines->lib_handle);
-    cinfo->qcroutines->lib_handle 		   = NULL;
-    cinfo->qcroutines->huff_extend 		   = NULL;
-    cinfo->qcroutines->idct_1x1    		   = NULL;
-    cinfo->qcroutines->idct_2x2    		   = NULL;
-    cinfo->qcroutines->idct_4x4    		   = NULL;
-    cinfo->qcroutines->idct_8x8    		   = NULL;
-    cinfo->qcroutines->yuv444semiplanar_to_rgb565  = NULL;
-    cinfo->qcroutines->yuv422semiplanar_to_rgb565  = NULL;
-    cinfo->qcroutines->yuv422planar_to_rgb565      = NULL;
-  }
-}
-#endif
 
 /*
  * Initialization of a JPEG decompression object.
@@ -153,10 +78,6 @@ jpeg_CreateDecompress (j_decompress_ptr cinfo, int version, size_t structsize)
   /* And initialize the overall input controller. */
   jinit_input_controller(cinfo);
 
-#ifdef QC_LIBS_SUPPORTED
-  load_qc_shared_lib(cinfo);
-#endif
-
   /* OK, I'm ready */
   cinfo->global_state = DSTATE_START;
 }
@@ -169,9 +90,6 @@ jpeg_CreateDecompress (j_decompress_ptr cinfo, int version, size_t structsize)
 GLOBAL(void)
 jpeg_destroy_decompress (j_decompress_ptr cinfo)
 {
-#ifdef QC_LIBS_SUPPORTED
-  unload_qc_shared_lib(cinfo);
-#endif
   jpeg_destroy((j_common_ptr) cinfo); /* use common routine */
 }
 

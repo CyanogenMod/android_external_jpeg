@@ -123,14 +123,8 @@ start_pass (j_decompress_ptr cinfo)
 #endif
 #ifdef DCT_IFAST_SUPPORTED
       case JDCT_IFAST:
-#ifdef QC_LIBS_SUPPORTED
-        /* Use QC version of jpeg_idct_islow even if fast DCT option is selected */
-	method_ptr = jpeg_idct_islow;
-	method = JDCT_ISLOW;
-#else
 	method_ptr = jpeg_idct_ifast;
 	method = JDCT_IFAST;
-#endif /* QC_LIBS_SUPPORTED */
 	break;
 #endif
 #ifdef DCT_FLOAT_SUPPORTED
