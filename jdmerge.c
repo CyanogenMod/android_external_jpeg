@@ -2,7 +2,6 @@
  * jdmerge.c
  *
  * Copyright (C) 1994-1996, Thomas G. Lane.
- * Copyright (c) 2010, Code Aurora Forum. All rights reserved.
  * This file is part of the Independent JPEG Group's software.
  * For conditions of distribution and use, see the accompanying README file.
  *
@@ -96,38 +95,32 @@ typedef my_upsampler * my_upsample_ptr;
 #define FIX(x)		((INT32) ((x) * (1L<<SCALEBITS) + 0.5))
 
 #ifdef QC_LIBS_SUPPORTED
-/* Uncomment below to use YUV semiplanar (i.e. NV12) format. Profiling
- * tests show commparable results for using YUV planar vs YUV semiplanar
- * format. Favouring YUV planar format due to smaller temporary buffer
+/* Uncomment below to use interleaved chroma (i.e. NV12) format. Profiling
+ * tests show commparable results for using YUV planar vs YUV interleaved
+ * chroma format. Favouring YUV planar format due to smaller temporary buffer
  * required.
  */
-/* #define JDMERGE_USE_YUV_SEMIPLANAR_FORMAT  */
+/* #define USE_INTERLEAVED_CHROMA_FORMAT  */
 
 /*
- * Allocate temp buffer for YCC->RGB colorspace conversion.
- * Supported for JCS_RGB_565 and JCS_RGB (RGB888) only.
+ * Allocate interleaved chroma buffer (QC buffer format) for
+ * YCC->RGB colorspace conversion
  */
 LOCAL (void)
 alloc_merged_temp_buffer (j_decompress_ptr cinfo)
 {
   JDIMENSION alloc_width;
   my_upsample_ptr upsample = (my_upsample_ptr) cinfo->upsample;
-#ifndef JDMERGE_USE_YUV_SEMIPLANAR_FORMAT
-#ifdef ANDROID_RGB
+#ifdef USE_INTERLEAVED_CHROMA_FORMAT
+  /* The allocation width must be twice width of the chroma buffers
+   * If the source size is odd, then we need to allocate +1 pixels. */
+  alloc_width = (cinfo->output_width & 1) + cinfo->output_width;
+#else
 /* Temp buffer required for planar YUV format is constant,
  * which is 16 x RGB565 samples wide */
-#define RGB565_TEMP_BUFFER_WIDTH  	(16 * 2) /* bytes */
-  if (cinfo->out_color_space == JCS_RGB_565) {
-    alloc_width = RGB565_TEMP_BUFFER_WIDTH;
-  } else
-#endif /* ANDROID_RGB */
+#define MERGED_TEMP_BUFFER_WIDTH  	(16 * 2) /* bytes */
+  alloc_width = MERGED_TEMP_BUFFER_WIDTH;
 #endif
-  {
-    /* Temp buffer is used as interleaved chroma line buffer.
-     * The allocation width must be twice the width of the chroma line.
-     * If the output width is odd, then we need to allocate +1 pixels. */
-    alloc_width = (cinfo->output_width & 1) + cinfo->output_width;
-  }
   upsample->temp_buf = (JSAMPROW*)(*cinfo->mem->alloc_sarray)
                                   ((j_common_ptr) cinfo, JPOOL_IMAGE,
                                   alloc_width, 1);  /* One row */
@@ -292,33 +285,6 @@ METHODDEF(void)
 h2v1_merged_upsample (j_decompress_ptr cinfo,
 		      JSAMPIMAGE input_buf, JDIMENSION in_row_group_ctr,
 		      JSAMPARRAY output_buf)
-#ifdef QC_LIBS_SUPPORTED
-{
-  my_upsample_ptr upsample = (my_upsample_ptr) cinfo->upsample;
-  JSAMPROW inptr0, inptr1, inptr2, tempbufptr;
-  JSAMPROW outptr;
-  JDIMENSION col;
-
-  inptr0 = input_buf[0][in_row_group_ctr];
-  inptr1 = input_buf[1][in_row_group_ctr];
-  inptr2 = input_buf[2][in_row_group_ctr];
-  outptr = output_buf[0];
-
-  tempbufptr     = upsample->temp_buf[0];
-
-  /* Fill interleaved chroma byte array */
-  for (col = 0; col < ((cinfo->output_width+1)>>1); col++)
-  {
-    *tempbufptr++ = GETJSAMPLE(*inptr2++);
-    *tempbufptr++ = GETJSAMPLE(*inptr1++);
-  }
-
-  cinfo->qcroutines->yuv422semiplanar_to_rgb888((UINT8*) inptr0,
-		  (UINT8*) upsample->temp_buf[0],
-		  (UINT8*) outptr,
-		   cinfo->output_width);
-}
-#else
 {
   my_upsample_ptr upsample = (my_upsample_ptr) cinfo->upsample;
   register int y, cred, cgreen, cblue;
@@ -371,7 +337,6 @@ h2v1_merged_upsample (j_decompress_ptr cinfo,
     outptr[RGB_BLUE] = range_limit[y + cblue];
   }
 }
-#endif /* QC_LIBS_SUPPORTED */
 
 
 #ifdef ANDROID_RGB
@@ -391,7 +356,7 @@ h2v1_merged_upsample_565 (j_decompress_ptr cinfo,
   inptr2 = input_buf[2][in_row_group_ctr];
   outptr = output_buf[0];
 
-#ifdef JDMERGE_USE_YUV_SEMIPLANAR_FORMAT
+#ifdef USE_INTERLEAVED_CHROMA_FORMAT
   tempbufptr     = upsample->temp_buf[0];
 
   /* Fill interleaved chroma byte array */
@@ -412,7 +377,7 @@ h2v1_merged_upsample_565 (j_decompress_ptr cinfo,
                      (UINT8*) inptr1,
                      (UINT8*) inptr2,
                      (UINT8*) upsample->temp_buf[0]);
-#endif /* JDMERGE_USE_YUV_SEMIPLANAR_FORMAT */
+#endif /* USE_INTERLEAVED_CHROMA_FORMAT */
 }
 #else
 {
@@ -554,40 +519,6 @@ METHODDEF(void)
 h2v2_merged_upsample (j_decompress_ptr cinfo,
 		      JSAMPIMAGE input_buf, JDIMENSION in_row_group_ctr,
 		      JSAMPARRAY output_buf)
-#ifdef QC_LIBS_SUPPORTED
-{
-  my_upsample_ptr upsample = (my_upsample_ptr) cinfo->upsample;
-  int cb, cr;
-  JSAMPROW outptr0, outptr1, tempbufptr;
-  JSAMPROW inptr00, inptr01, inptr1, inptr2;
-  JDIMENSION col;
-  inptr00 = input_buf[0][in_row_group_ctr*2];
-  inptr01 = input_buf[0][in_row_group_ctr*2 + 1];
-  inptr1  = input_buf[1][in_row_group_ctr];
-  inptr2  = input_buf[2][in_row_group_ctr];
-  outptr0 = output_buf[0];
-  outptr1 = output_buf[1];
-
-  tempbufptr  = upsample->temp_buf[0];
-
-  /* Fill interleaved chroma byte array */
-  for (col = 0; col < ((cinfo->output_width+1)>>1); col++)
-  {
-    *tempbufptr++ = GETJSAMPLE(*inptr2++);
-    *tempbufptr++ = GETJSAMPLE(*inptr1++);
-  }
-
-  cinfo->qcroutines->yuv422semiplanar_to_rgb888((UINT8*) inptr00,
-		  (UINT8*) upsample->temp_buf[0],
-		  (UINT8*) outptr0,
-		   cinfo->output_width);
-
-  cinfo->qcroutines->yuv422semiplanar_to_rgb888((UINT8*) inptr01,
-		  (UINT8*) upsample->temp_buf[0],
-		  (UINT8*) outptr1,
-		   cinfo->output_width);
-}
-#else
 {
   my_upsample_ptr upsample = (my_upsample_ptr) cinfo->upsample;
   register int y, cred, cgreen, cblue;
@@ -656,7 +587,6 @@ h2v2_merged_upsample (j_decompress_ptr cinfo,
     outptr1[RGB_BLUE] = range_limit[y + cblue];
   }
 }
-#endif /* QC_LIBS_SUPPORTED */
 
 
 #ifdef ANDROID_RGB
@@ -679,10 +609,10 @@ h2v2_merged_upsample_565 (j_decompress_ptr cinfo,
   outptr0 = output_buf[0];
   outptr1 = output_buf[1];
 
-#ifdef JDMERGE_USE_YUV_SEMIPLANAR_FORMAT
+#ifdef USE_INTERLEAVED_CHROMA_FORMAT
   tempbufptr  = upsample->temp_buf[0];
 
-  /* Fill interleaved chroma byte array */
+  // Fill interleaved chroma byte array
   for (col = 0; col < ((cinfo->output_width+1)>>1); col++)
   {
     *tempbufptr++ = GETJSAMPLE(*inptr2++);
@@ -713,7 +643,7 @@ h2v2_merged_upsample_565 (j_decompress_ptr cinfo,
                      (UINT8*) inptr1,
                      (UINT8*) inptr2,
                      (UINT8*) upsample->temp_buf[0]);
-#endif /* JDMERGE_USE_YUV_SEMIPLANAR_FORMAT */
+#endif /* USE_INTERLEAVED_CHROMA_FORMAT */
 }
 #else
 {
@@ -903,6 +833,7 @@ GLOBAL(void)
 jinit_merged_upsampler (j_decompress_ptr cinfo)
 {
   my_upsample_ptr upsample;
+  boolean build_tables = TRUE;
 
   upsample = (my_upsample_ptr)
     (*cinfo->mem->alloc_small) ((j_common_ptr) cinfo, JPOOL_IMAGE,
@@ -918,15 +849,22 @@ jinit_merged_upsampler (j_decompress_ptr cinfo)
     upsample->upmethod = h2v2_merged_upsample;
 #ifdef ANDROID_RGB
     if (cinfo->out_color_space == JCS_RGB_565) {
-#ifndef QC_LIBS_SUPPORTED
-      if (cinfo->dither_mode != JDITHER_NONE) {
-        upsample->upmethod = h2v2_merged_upsample_565D;
-      } else
-#endif
-      {
-        /* If QC libs are supported, use h2v2_merged_upsample_565
-         * function regardless of dither mode. */
+      if (cinfo->dither_mode == JDITHER_NONE) {
+#ifdef QC_LIBS_SUPPORTED
+        alloc_merged_temp_buffer(cinfo);
+        build_tables = FALSE;
+#endif /* QC_LIBS_SUPPORTED */
         upsample->upmethod = h2v2_merged_upsample_565;
+      } else {
+#ifdef QC_LIBS_SUPPORTED
+        alloc_merged_temp_buffer(cinfo);
+        build_tables = FALSE;
+        /* If QC libs are supported, use QC h2v2_merged_upsample_565
+         * function even if does not do dithering. */
+        upsample->upmethod = h2v2_merged_upsample_565;
+#else
+        upsample->upmethod = h2v2_merged_upsample_565D;
+#endif /* QC_LIBS_SUPPORTED */
       }
     }
 #endif
@@ -939,15 +877,22 @@ jinit_merged_upsampler (j_decompress_ptr cinfo)
     upsample->upmethod = h2v1_merged_upsample;
 #ifdef ANDROID_RGB
     if (cinfo->out_color_space == JCS_RGB_565) {
-#ifndef QC_LIBS_SUPPORTED
-      if (cinfo->dither_mode != JDITHER_NONE) {
-        upsample->upmethod = h2v1_merged_upsample_565D;
-      } else
-#endif
-      {
-        /* If QC libs are supported, use h2v1_merged_upsample_565
-         * function regardless of dither mode. */
+      if (cinfo->dither_mode == JDITHER_NONE) {
+#ifdef QC_LIBS_SUPPORTED
+        alloc_merged_temp_buffer(cinfo);
+        build_tables = FALSE;
+#endif /* QC_LIBS_SUPPORTED */
         upsample->upmethod = h2v1_merged_upsample_565;
+      } else {
+#ifdef QC_LIBS_SUPPORTED
+        alloc_merged_temp_buffer(cinfo);
+        build_tables = FALSE;
+        /* If QC libs are supported, use QC h2v1_merged_upsample_565
+         * function even if does not do dithering. */
+        upsample->upmethod = h2v1_merged_upsample_565;
+#else
+        upsample->upmethod = h2v1_merged_upsample_565D;
+#endif /* QC_LIBS_SUPPORTED */
       }
     }
 #endif
@@ -955,11 +900,9 @@ jinit_merged_upsampler (j_decompress_ptr cinfo)
     upsample->spare_row = NULL;
   }
 
-#ifdef QC_LIBS_SUPPORTED
-  alloc_merged_temp_buffer(cinfo);
-#else
-  build_ycc_rgb_table(cinfo);
-#endif /* QC_LIBS_SUPPORTED */
+  if (build_tables) {
+    build_ycc_rgb_table(cinfo);
+  }
 }
 
 #endif /* UPSAMPLE_MERGING_SUPPORTED */

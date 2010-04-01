@@ -2,7 +2,6 @@
  * jdcolor.c
  *
  * Copyright (C) 1991-1997, Thomas G. Lane.
- * Copyright (c) 2010, Code Aurora Forum. All rights reserved.
  * This file is part of the Independent JPEG Group's software.
  * For conditions of distribution and use, see the accompanying README file.
  *
@@ -25,7 +24,7 @@ typedef struct {
   INT32 * Cr_g_tab;		/* => table for Cr to G conversion */
   INT32 * Cb_g_tab;		/* => table for Cb to G conversion */
 #ifdef QC_LIBS_SUPPORTED
-  JSAMPROW * temp_buf;		/* => temporary buffer used during color conversion */
+  JSAMPROW * chroma_line_buf;		/* => Interleaved Chroma buffer for QC color conversion */
 #endif /* QC_LIBS_SUPPORTED */
 } my_color_deconverter;
 
@@ -129,31 +128,17 @@ build_ycc_rgb_table (j_decompress_ptr cinfo)
 }
 
 #ifdef QC_LIBS_SUPPORTED
-
-/* Temp buffer required for planar YUV format is constant,
- * which is 16 x RGB888 samples wide */
-#define RGB888_TEMP_BUFFER_WIDTH  	(16 * 3) /* bytes */
-
 /*
  * Allocate interleaved chroma buffer (QC buffer format) for
  * YCC->RGB colorspace conversion
  */
 LOCAL (void)
-alloc_temp_buffer(j_decompress_ptr cinfo)
+alloc_interleaved_chroma_buffer (j_decompress_ptr cinfo)
 {
-  JDIMENSION alloc_width = 0;
   my_cconvert_ptr cconvert = (my_cconvert_ptr) cinfo->cconvert;
-  if (cinfo->out_color_space == JCS_RGB) {
-    /* Temp buffer for planar YUV format is fixed size */
-    alloc_width = RGB888_TEMP_BUFFER_WIDTH;
-  } else {
-    /* Temp buffer is used as interleaved chroma line buffer */
-    alloc_width = (cinfo->output_width << 1);
-  }
-
-  cconvert->temp_buf = (JSAMPROW*)(*cinfo->mem->alloc_sarray)
-                                  ((j_common_ptr) cinfo, JPOOL_IMAGE,
-                                  alloc_width, 1);  /* One row */
+  cconvert->chroma_line_buf = (JSAMPROW*)(*cinfo->mem->alloc_sarray)
+                        ((j_common_ptr) cinfo, JPOOL_IMAGE,
+                        cinfo->output_width << 1, 1);  // One row
 }
 #endif /* QC_LIBS_SUPPORTED */
 
@@ -173,36 +158,6 @@ METHODDEF(void)
 ycc_rgb_convert (j_decompress_ptr cinfo,
 		 JSAMPIMAGE input_buf, JDIMENSION input_row,
 		 JSAMPARRAY output_buf, int num_rows)
-#ifdef QC_LIBS_SUPPORTED
-/*
- * Converts YCC->RGB888 using QC proprietary library
- * Assumes alloc_temp_buffer() has been called
- */
-{
-  my_cconvert_ptr cconvert = (my_cconvert_ptr) cinfo->cconvert;
-  JSAMPROW inptr0, inptr1, inptr2;
-  JSAMPROW outptr;
-  JDIMENSION row, col;
-  row = num_rows;
-
-  for (row = 0; row < (JDIMENSION)num_rows; row++)
-  {
-    inptr0     = input_buf[0][input_row];
-    inptr1     = input_buf[1][input_row];
-    inptr2     = input_buf[2][input_row];
-
-    input_row++;
-    outptr = *output_buf++;
-
-    cinfo->qcroutines->yuv444planar_to_rgb888(cinfo->output_width,
-                     (UINT8*) outptr,
-                     (UINT8*) inptr0,
-                     (UINT8*) inptr1,
-                     (UINT8*) inptr2,
-                     (UINT8*) cconvert->temp_buf[0]);
-  }
-}
-#else
 {
   my_cconvert_ptr cconvert = (my_cconvert_ptr) cinfo->cconvert;
   register int y, cb, cr;
@@ -238,7 +193,6 @@ ycc_rgb_convert (j_decompress_ptr cinfo,
     }
   }
 }
-#endif /* QC_LIBS_SUPPORTED */
 
 #ifdef ANDROID_RGB
 METHODDEF(void)
@@ -289,7 +243,7 @@ ycc_rgb_565_convert (j_decompress_ptr cinfo,
 #ifdef QC_LIBS_SUPPORTED
 /*
  * Converts YCC->RGB565 using QC proprietary library
- * Assumes alloc_temp_buffer() has been called
+ * Assumes alloc_interleaved_chroma_buffer() has been called
  */
 {
   my_cconvert_ptr cconvert = (my_cconvert_ptr) cinfo->cconvert;
@@ -303,7 +257,7 @@ ycc_rgb_565_convert (j_decompress_ptr cinfo,
     inptr0     = input_buf[0][input_row];
     inptr1     = input_buf[1][input_row];
     inptr2     = input_buf[2][input_row];
-    inCbCr     = cconvert->temp_buf[0];
+    inCbCr     = cconvert->chroma_line_buf[0];
 
     input_row++;
     outptr = *output_buf++;
@@ -315,7 +269,7 @@ ycc_rgb_565_convert (j_decompress_ptr cinfo,
     }
 
     cinfo->qcroutines->yuv444semiplanar_to_rgb565((UINT8*)  inptr0,
-                    (UINT8*) cconvert->temp_buf[0],
+                    (UINT8*) cconvert->chroma_line_buf[0],
                     (UINT8*) outptr,
                      cinfo->output_width);
   }
@@ -904,11 +858,7 @@ jinit_color_deconverter (j_decompress_ptr cinfo)
     cinfo->out_color_components = RGB_PIXELSIZE;
     if (cinfo->jpeg_color_space == JCS_YCbCr) {
       cconvert->pub.color_convert = ycc_rgb_convert;
-#ifdef QC_LIBS_SUPPORTED
-      alloc_temp_buffer(cinfo);
-#else
       build_ycc_rgb_table(cinfo);
-#endif
     } else if (cinfo->jpeg_color_space == JCS_GRAYSCALE) {
       cconvert->pub.color_convert = gray_rgb_convert;
     } else if (cinfo->jpeg_color_space == JCS_RGB && RGB_PIXELSIZE == 3) {
@@ -937,7 +887,7 @@ jinit_color_deconverter (j_decompress_ptr cinfo)
       if (cinfo->jpeg_color_space == JCS_YCbCr) {
         cconvert->pub.color_convert = ycc_rgb_565_convert;
 #ifdef QC_LIBS_SUPPORTED
-        alloc_temp_buffer(cinfo);
+        alloc_interleaved_chroma_buffer(cinfo);
 #else
         build_ycc_rgb_table(cinfo);
 #endif /* QC_LIBS_SUPPORTED */
@@ -954,7 +904,7 @@ jinit_color_deconverter (j_decompress_ptr cinfo)
         /* If QC libs are supported, use QC routine even
          * if dithering option is selected. */
         cconvert->pub.color_convert = ycc_rgb_565_convert;
-	alloc_temp_buffer(cinfo);
+	alloc_interleaved_chroma_buffer(cinfo);
 #else
         cconvert->pub.color_convert = ycc_rgb_565D_convert;
         build_ycc_rgb_table(cinfo);
