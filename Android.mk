@@ -1,9 +1,6 @@
 LOCAL_PATH:= $(call my-dir)
-include $(CLEAR_VARS)
 
-LOCAL_ARM_MODE := arm
-
-LOCAL_SRC_FILES := \
+common_SRC_FILES := \
 	jcapimin.c jcapistd.c jccoefct.c jccolor.c jcdctmgr.c jchuff.c \
 	jcinit.c jcmainct.c jcmarker.c jcmaster.c jcomapi.c jcparam.c \
 	jcphuff.c jcprepct.c jcsample.c jctrans.c jdapimin.c jdapistd.c \
@@ -23,15 +20,36 @@ endif
 #ANDROID_JPEG_NO_ASSEMBLER := true
 
 ifeq ($(strip $(ANDROID_JPEG_NO_ASSEMBLER)),true)
-LOCAL_SRC_FILES += jidctint.c jidctfst.c
+common_SRC_FILES += jidctint.c jidctfst.c
 else
-LOCAL_SRC_FILES += jidctint.c jidctfst.S
+common_SRC_FILES += jidctint.c jidctfst.S
 endif
 
-LOCAL_CFLAGS += -DAVOID_TABLES 
-LOCAL_CFLAGS += -O3 -fstrict-aliasing -fprefetch-loop-arrays
-#LOCAL_CFLAGS += -march=armv6j
+common_CFLAGS := -DAVOID_TABLES
+common_CFLAGS += -O3 -fstrict-aliasing -fprefetch-loop-arrays
+#common_CFLAGS += -march=armv6j
+
+include $(CLEAR_VARS)
+
+LOCAL_ARM_MODE := arm
+
+LOCAL_SRC_FILES := $(common_SRC_FILES)
+LOCAL_CFLAGS += $(common_CFLAGS)
 
 LOCAL_MODULE:= libjpeg
 
 include $(BUILD_STATIC_LIBRARY)
+
+
+include $(CLEAR_VARS)
+
+LOCAL_ARM_MODE := arm
+
+LOCAL_SRC_FILES := $(common_SRC_FILES)
+LOCAL_CFLAGS += $(common_CFLAGS)
+
+LOCAL_MODULE:= libjpeg
+
+LOCAL_PRELINK_MODULE := false
+
+include $(BUILD_SHARED_LIBRARY)
