@@ -2,6 +2,7 @@
  * jdcolor.c
  *
  * Copyright (C) 1991-1997, Thomas G. Lane.
+ * Copyright (c) 2010, Code Aurora Forum. All rights reserved.
  * This file is part of the Independent JPEG Group's software.
  * For conditions of distribution and use, see the accompanying README file.
  *
@@ -23,6 +24,9 @@ typedef struct {
   int * Cb_b_tab;		/* => table for Cb to B conversion */
   INT32 * Cr_g_tab;		/* => table for Cr to G conversion */
   INT32 * Cb_g_tab;		/* => table for Cb to G conversion */
+#ifdef ANDROID_JPEG_USE_VENUM
+  JSAMPROW * temp_buf;		/* => temporary buffer used during color conversion */
+#endif /* ANDROID_JPEG_USE_VENUM */
 } my_color_deconverter;
 
 typedef my_color_deconverter * my_cconvert_ptr;
@@ -124,6 +128,25 @@ build_ycc_rgb_table (j_decompress_ptr cinfo)
   }
 }
 
+#ifdef ANDROID_JPEG_USE_VENUM
+/*
+ * Allocate interleaved chroma buffer for
+ * YCC->RGB colorspace conversion
+ */
+LOCAL (void)
+alloc_temp_buffer(j_decompress_ptr cinfo)
+{
+  JDIMENSION alloc_width = 0;
+  my_cconvert_ptr cconvert = (my_cconvert_ptr) cinfo->cconvert;
+  /* Temp buffer is used as interleaved chroma line buffer */
+  alloc_width = (cinfo->output_width << 1);
+  cconvert->temp_buf = (JSAMPROW*)(*cinfo->mem->alloc_sarray)
+                                  ((j_common_ptr) cinfo, JPOOL_IMAGE,
+                                  alloc_width, 1);  /* One row */
+}
+#endif /* ANDROID_JPEG_USE_VENUM */
+
+
 /*
  * Convert some rows of samples to the output colorspace.
  *
@@ -139,6 +162,41 @@ METHODDEF(void)
 ycc_rgb_convert (j_decompress_ptr cinfo,
 		 JSAMPIMAGE input_buf, JDIMENSION input_row,
 		 JSAMPARRAY output_buf, int num_rows)
+#ifdef ANDROID_JPEG_USE_VENUM
+/*
+ * Converts YCC->RGB888 using VeNum instructions.
+ * Assumes alloc_temp_buffer() has been called
+ */
+{
+  my_cconvert_ptr cconvert = (my_cconvert_ptr) cinfo->cconvert;
+  JSAMPROW inptr0, inptr1, inptr2, inCbCr;
+  JSAMPROW outptr;
+  JDIMENSION row, col;
+  row = num_rows;
+
+  for (row = 0; row < (JDIMENSION)num_rows; row++)
+  {
+    inptr0     = input_buf[0][input_row];
+    inptr1     = input_buf[1][input_row];
+    inptr2     = input_buf[2][input_row];
+    inCbCr     = cconvert->temp_buf[0];
+
+    input_row++;
+    outptr = *output_buf++;
+
+    for (col = 0; col < cinfo->output_width; col++)
+    {
+      *inCbCr++ = *inptr2++;
+      *inCbCr++ = *inptr1++;
+    }
+
+    yvu2bgr888_venum((UINT8*)  inptr0,
+                    (UINT8*) cconvert->temp_buf[0],
+                    (UINT8*) outptr,
+                     cinfo->output_width);
+  }
+}
+#else
 {
   my_cconvert_ptr cconvert = (my_cconvert_ptr) cinfo->cconvert;
   register int y, cb, cr;
@@ -174,6 +232,7 @@ ycc_rgb_convert (j_decompress_ptr cinfo,
     }
   }
 }
+#endif /* ANDROID_JPEG_USE_VENUM */
 
 #ifdef ANDROID_RGB
 METHODDEF(void)
@@ -221,6 +280,41 @@ METHODDEF(void)
 ycc_rgb_565_convert (j_decompress_ptr cinfo,
          JSAMPIMAGE input_buf, JDIMENSION input_row,
          JSAMPARRAY output_buf, int num_rows)
+#ifdef ANDROID_JPEG_USE_VENUM
+/*
+ * Converts YCC->RGB565 using VeNum instructions.
+ * Assumes alloc_temp_buffer() has been called
+ */
+{
+  my_cconvert_ptr cconvert = (my_cconvert_ptr) cinfo->cconvert;
+  JSAMPROW inptr0, inptr1, inptr2, inCbCr;
+  JSAMPROW outptr;
+  JDIMENSION row, col;
+  row = num_rows;
+
+  for (row = 0; row < (JDIMENSION)num_rows; row++)
+  {
+    inptr0     = input_buf[0][input_row];
+    inptr1     = input_buf[1][input_row];
+    inptr2     = input_buf[2][input_row];
+    inCbCr     = cconvert->temp_buf[0];
+
+    input_row++;
+    outptr = *output_buf++;
+
+    for (col = 0; col < cinfo->output_width; col++)
+    {
+      *inCbCr++ = *inptr2++;
+      *inCbCr++ = *inptr1++;
+    }
+
+    yvu2rgb565_venum((UINT8*)  inptr0,
+                    (UINT8*) cconvert->temp_buf[0],
+                    (UINT8*) outptr,
+                     cinfo->output_width);
+  }
+}
+#else
 {
   my_cconvert_ptr cconvert = (my_cconvert_ptr) cinfo->cconvert;
   register int y, cb, cr;
@@ -288,6 +382,7 @@ ycc_rgb_565_convert (j_decompress_ptr cinfo,
     }
   }
 }
+#endif /* ANDROID_JPEG_USE_VENUM */
 
 METHODDEF(void)
 ycc_rgb_565D_convert (j_decompress_ptr cinfo,
@@ -803,7 +898,11 @@ jinit_color_deconverter (j_decompress_ptr cinfo)
     cinfo->out_color_components = RGB_PIXELSIZE;
     if (cinfo->jpeg_color_space == JCS_YCbCr) {
       cconvert->pub.color_convert = ycc_rgb_convert;
+#ifdef ANDROID_JPEG_USE_VENUM
+      alloc_temp_buffer(cinfo);
+#else
       build_ycc_rgb_table(cinfo);
+#endif
     } else if (cinfo->jpeg_color_space == JCS_GRAYSCALE) {
       cconvert->pub.color_convert = gray_rgb_convert;
     } else if (cinfo->jpeg_color_space == JCS_RGB && RGB_PIXELSIZE == 3) {
@@ -831,7 +930,11 @@ jinit_color_deconverter (j_decompress_ptr cinfo)
     if (cinfo->dither_mode == JDITHER_NONE) {
       if (cinfo->jpeg_color_space == JCS_YCbCr) {
         cconvert->pub.color_convert = ycc_rgb_565_convert;
+#ifdef ANDROID_JPEG_USE_VENUM
+        alloc_temp_buffer(cinfo);
+#else
         build_ycc_rgb_table(cinfo);
+#endif /* ANDROID_JPEG_USE_VENUM */
       } else if (cinfo->jpeg_color_space == JCS_GRAYSCALE) {
         cconvert->pub.color_convert = gray_rgb_565_convert;
       } else if (cinfo->jpeg_color_space == JCS_RGB) {
@@ -841,8 +944,14 @@ jinit_color_deconverter (j_decompress_ptr cinfo)
     } else {
       /* only ordered dither is supported */
       if (cinfo->jpeg_color_space == JCS_YCbCr) {
+#ifdef ANDROID_JPEG_USE_VENUM
+        /* Use VeNum routine even if dithering option is selected. */
+        cconvert->pub.color_convert = ycc_rgb_565_convert;
+	alloc_temp_buffer(cinfo);
+#else
         cconvert->pub.color_convert = ycc_rgb_565D_convert;
         build_ycc_rgb_table(cinfo);
+#endif /* ANDROID_JPEG_USE_VENUM */
       } else if (cinfo->jpeg_color_space == JCS_GRAYSCALE) {
         cconvert->pub.color_convert = gray_rgb_565D_convert;
       } else if (cinfo->jpeg_color_space == JCS_RGB) {
