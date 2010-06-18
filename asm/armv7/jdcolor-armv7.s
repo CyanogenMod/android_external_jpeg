@@ -33,10 +33,10 @@
 ;                         FUNCTION LIST
 ;--------------------------------------------------------------------------
 ;
-; - yvu2rgb565_venum
-; - yyvu2rgb565_venum
-; - yvu2bgr888_venum
-; - yyvu2bgr888_venum
+; - yvup2rgb565_venum
+; - yyvup2rgb565_venum
+; - yvup2bgr888_venum
+; - yyvup2bgr888_venum
 ;
 ;==========================================================================
 
@@ -47,19 +47,21 @@
 ;   ARM Registers
 ;==========================================================================
 
-p_luma    RN 0
-p_chroma  RN 1
-p_rgb     RN 2
-length    RN 3
+p_y       RN 0
+p_cr      RN 1
+p_cb      RN 2
+p_rgb     RN 3
+p_bgr     RN 3
+length    RN 12
 
 ;==========================================================================
 ;   Main Routine
 ;==========================================================================
 
-    EXPORT yvu2rgb565_venum
-    EXPORT yyvu2rgb565_venum
-    EXPORT yvu2bgr888_venum
-    EXPORT yyvu2bgr888_venum
+    EXPORT yvup2rgb565_venum
+    EXPORT yyvup2rgb565_venum
+    EXPORT yvup2bgr888_venum
+    EXPORT yyvup2bgr888_venum
 
 ;==========================================================================
 ;   Constants
@@ -83,35 +85,39 @@ COEFF_BIAS_B EQU  -70688              ; Blue  bias = -298*16 - 516*128 + 128
 
 
 ;==========================================================================
-; FUNCTION     : yvu2rgb565_venum
+; FUNCTION     : yvup2rgb565_venum
 ;--------------------------------------------------------------------------
-; DESCRIPTION  : Perform YVU to RGB565 conversion.
+; DESCRIPTION  : Perform YVU planar to RGB565 conversion.
 ;--------------------------------------------------------------------------
-; C PROTOTYPE  : void yvu2rgb565_venum(uint8_t  *p_luma,
-;                                uint8_t  *p_chroma,
+; C PROTOTYPE  : void yvup2rgb565_venum(uint8_t  *p_y,
+;                                uint8_t  *p_cr,
+;                                uint8_t  *p_cb,
 ;                                uint8_t  *p_rgb565,
 ;                                uint32_t  length)
 ;--------------------------------------------------------------------------
-; REG INPUT    : R0: uint8_t  *p_luma
-;                      pointer to the input Luma Line
-;                R1: uint8_t  *p_chroma
-;                      pointer to the input Chroma Line
-;                R2: uint8_t  *p_rgb565
+; REG INPUT    : R0: uint8_t  *p_y
+;                      pointer to the input Y Line
+;                R1: uint8_t  *p_cr
+;                      pointer to the input Cr Line
+;                R2: uint8_t  *p_cb
+;                      pointer to the input Cb Line
+;                R3: uint8_t  *p_rgb565
 ;                      pointer to the output RGB Line
-;                R3: uint32_t  length
+;                R12: uint32_t  length
 ;                      width of Line
 ;--------------------------------------------------------------------------
 ; STACK ARG    : None
 ;--------------------------------------------------------------------------
 ; REG OUTPUT   : None
 ;--------------------------------------------------------------------------
-; MEM INPUT    : p_luma   - a line of luma pixels
-;                p_chroma - a line of chroma pixels
+; MEM INPUT    : p_y      - a line of Y pixels
+;                p_cr     - a line of Cr pixels
+;                p_cb     - a line of Cb pixels
 ;                length   - the width of the input line
 ;--------------------------------------------------------------------------
 ; MEM OUTPUT   : p_rgb565 - the converted rgb pixels
 ;--------------------------------------------------------------------------
-; REG AFFECTED : ARM:  R0-R4
+; REG AFFECTED : ARM:  R0-R4, R12
 ;                NEON: Q0-Q15
 ;--------------------------------------------------------------------------
 ; STACK USAGE  : none
@@ -121,19 +127,31 @@ COEFF_BIAS_B EQU  -70688              ; Blue  bias = -298*16 - 516*128 + 128
 ;--------------------------------------------------------------------------
 ; NOTES        :
 ;==========================================================================
-yvu2rgb565_venum  FUNCTION
+yvup2rgb565_venum  FUNCTION
 
     ;==========================================================================
     ; Store stack registers
     ;==========================================================================
-    STMFD SP!, {R4, LR}
+    STMFD SP!, {LR}
 
     PLD [R0, R3]                      ; preload luma line
 
-    ADR   R4, constants
+    ADR   R12, constants
 
-    VLD1.S16  {D6, D7}, [R4]!         ; D6, D7: 409 | -100 | -208 | 516 | 298 | 0 | 255 | 0
-    VLD1.S32  Q15,      [R4]          ; Q15   :  -56992    |    34784   |  -70688 |     X
+    VLD1.S16  {D6, D7}, [R12]!        ; D6, D7: 409 | -100 | -208 | 516 | 298 | 0 | 255 | 0
+    VLD1.S32  Q15,      [R12]         ; Q15   :  -56992    |    34784   |  -70688 |     X
+
+    ;==========================================================================
+    ; Load the 5th parameter via stack
+    ; R0 ~ R3 are used to pass the first 4 parameters, the 5th and above
+    ; parameters are passed via stack
+    ;==========================================================================
+    LDR R12, [SP, #4]                 ; LR is the only one that has been pushed
+                                      ; into stack, increment SP by 4 to
+                                      ; get the parameter.
+                                      ; LDMIB SP, {R12} is an equivalent
+                                      ; instruction in this case, where only
+                                      ; one registers were pushed into stack.
 
     ;==========================================================================
     ; Load clamping parameters to duplicate vector elements
@@ -152,16 +170,17 @@ yvu2rgb565_venum  FUNCTION
     ;==========================================================================
     ; The main loop
     ;==========================================================================
-loop_yvu2rgb565
+loop_yvup2rgb565
 
     ;==========================================================================
     ; Load input from Y, V and U
     ; D12     : Y0  Y1  Y2  Y3  Y4  Y5  Y6  Y7
-    ; D14, D15: V0  V1  V2  V3  V4  V5  V6  V7,  U0  U1  U2  U3  U4  U5   U6  U7
+    ; D14  : V0  V1  V2  V3  V4  V5  V6  V7
+    ; D15  : U0  U1  U2  U3  U4  U5  U6  U7
     ;==========================================================================
-    VLD1.U8  {D12},     [p_luma]!     ; Load 8 Luma elements (uint8) to D12
-    VLD2.U8  {D14,D15}, [p_chroma]!   ; Load and scatter 8 Chroma elements pairs
-                                      ; (uint8) to D14, D15
+    VLD1.U8  {D12},  [p_y]!           ; Load 8 Y  elements (uint8) to D12
+    VLD1.U8  {D14},  [p_cr]!          ; Load 8 Cr elements (uint8) to D14
+    VLD1.U8  {D15},  [p_cb]!          ; Load 8 Cb elements (uint8) to D15
 
     ;==========================================================================
     ; Expand uint8 value to uint16
@@ -260,88 +279,92 @@ loop_yvu2rgb565
 
     SUBS length, length, #8           ; check if the length is less than 8
 
-    BMI  trailing_yvu2rgb565          ; jump to trailing processing if remaining length is less than 8
+    BMI  trailing_yvup2rgb565         ; jump to trailing processing if remaining length is less than 8
 
     VST2.U8  {D27, D28}, [p_rgb]!     ; vector store Red, Green, Blue to destination
                                       ; Blue at LSB
 
-    BHI loop_yvu2rgb565               ; loop if more than 8 pixels left
+    BHI loop_yvup2rgb565              ; loop if more than 8 pixels left
 
-    BEQ  end_yvu2rgb565               ; done if exactly 8 pixels processed in the loop
+    BEQ  end_yvup2rgb565              ; done if exactly 8 pixels processed in the loop
 
 
-trailing_yvu2rgb565
+trailing_yvup2rgb565
     ;==========================================================================
     ; There are from 1 ~ 7 pixels left in the trailing part.
     ; First adding 7 to the length so the length would be from 0 ~ 6.
     ; eg: 1 pixel left in the trailing part, so 1-8+7 = 0.
-    ; Then save 1 pixel unconditionally since at least 1 pixel left in the
+    ; Then save 1 pixel unconditionally since at least 1 pixels left in the
     ; trailing part.
     ;==========================================================================
     ADDS length, length, #7             ; there are 7 or less in the trailing part
 
     VST2.U8 {D27[0], D28[0]}, [p_rgb]!  ; at least 1 pixel left in the trailing part
-    BEQ  end_yvu2rgb565	                ; done if 0 pixel left
+    BEQ  end_yvup2rgb565                ; done if 0 pixel left
 
     SUBS length, length, #1             ; update length counter
     VST2.U8 {D27[1], D28[1]}, [p_rgb]!  ; store one more pixel
-    BEQ  end_yvu2rgb565	                ; done if 0 pixel left
+    BEQ  end_yvup2rgb565                ; done if 0 pixel left
 
     SUBS length, length, #1             ; update length counter
     VST2.U8 {D27[2], D28[2]}, [p_rgb]!  ; store one more pixel
-    BEQ  end_yvu2rgb565	                ; done if 0 pixel left
+    BEQ  end_yvup2rgb565                ; done if 0 pixel left
 
     SUBS length, length, #1             ; update length counter
     VST2.U8 {D27[3], D28[3]}, [p_rgb]!  ; store one more pixel
-    BEQ  end_yvu2rgb565	                ; done if 0 pixel left
+    BEQ  end_yvup2rgb565                ; done if 0 pixel left
 
     SUBS length, length, #1             ; update length counter
     VST2.U8 {D27[4], D28[4]}, [p_rgb]!  ; store one more pixel
-    BEQ  end_yvu2rgb565	                ; done if 0 pixel left
+    BEQ  end_yvup2rgb565                ; done if 0 pixel left
 
     SUBS length, length, #1             ; update length counter
     VST2.U8 {D27[5], D28[5]}, [p_rgb]!  ; store one more pixel
-    BEQ  end_yvu2rgb565	                ; done if 0 pixel left
+    BEQ  end_yvup2rgb565                ; done if 0 pixel left
 
     SUBS length, length, #1             ; update length counter
     VST2.U8 {D27[6], D28[6]}, [p_rgb]!  ; store one more pixel
 
-end_yvu2rgb565
-    LDMFD SP!, {R4, PC}
+end_yvup2rgb565
+    LDMFD SP!, {PC}
 
-    ENDFUNC                             ; end of yvu2rgb565
+    ENDFUNC                             ; end of yvup2rgb565
 
 
 ;==========================================================================
-; FUNCTION     : yyvu2rgb565_venum
+; FUNCTION     : yyvup2rgb565_venum
 ;--------------------------------------------------------------------------
-; DESCRIPTION  : Perform YYVU to RGB565 conversion.
+; DESCRIPTION  : Perform YYVU planar to RGB565 conversion.
 ;--------------------------------------------------------------------------
-; C PROTOTYPE  : void yyvu2rgb565_venum(uint8_t  *p_luma,
-;                                 uint8_t  *p_chroma,
+; C PROTOTYPE  : void yyvup2rgb565_venum(uint8_t  *p_y,
+;                                 uint8_t  *p_cr,
+;                                 uint8_t  *p_cb,
 ;                                 uint8_t  *p_rgb565,
 ;                                 uint32_t  length)
 ;--------------------------------------------------------------------------
-; REG INPUT    : R0: uint8_t  *p_luma
-;                      pointer to the input Luma Line
-;                R1: uint8_t  *p_chroma
-;                      pointer to the input Chroma Line
-;                R2: uint8_t  *p_rgb565
+; REG INPUT    : R0: uint8_t  *p_y
+;                      pointer to the input Y Line
+;                R1: uint8_t  *p_cr
+;                      pointer to the input Cr Line
+;                R2: uint8_t  *p_cb
+;                      pointer to the input Cb Line
+;                R3: uint8_t  *p_rgb565
 ;                      pointer to the output RGB Line
-;                R3: uint32_t  length
+;                R12: uint32_t  length
 ;                      width of Line
 ;--------------------------------------------------------------------------
 ; STACK ARG    : None
 ;--------------------------------------------------------------------------
 ; REG OUTPUT   : None
 ;--------------------------------------------------------------------------
-; MEM INPUT    : p_luma   - a line of luma pixels
-;                p_chroma - a line of chroma pixels
+; MEM INPUT    : p_y      - a line of Y pixels
+;                p_cr     - a line of Cr pixels
+;                p_cb     - a line of Cb pixels
 ;                length   - the width of the input line
 ;--------------------------------------------------------------------------
 ; MEM OUTPUT   : p_rgb565 - the converted rgb pixels
 ;--------------------------------------------------------------------------
-; REG AFFECTED : ARM:  R0-R4
+; REG AFFECTED : ARM:  R0-R4, R12
 ;                NEON: Q0-Q15
 ;--------------------------------------------------------------------------
 ; STACK USAGE  : none
@@ -351,19 +374,31 @@ end_yvu2rgb565
 ;--------------------------------------------------------------------------
 ; NOTES        :
 ;==========================================================================
-yyvu2rgb565_venum  FUNCTION
+yyvup2rgb565_venum  FUNCTION
 
     ;==========================================================================
     ; Store stack registers
     ;==========================================================================
-    STMFD SP!, {R4, LR}
+    STMFD SP!, {LR}
 
     PLD [R0, R3]                      ; preload luma line
 
-    ADR   R4, constants
+    ADR   R12, constants
 
-    VLD1.S16  {D6, D7}, [R4]!         ; D6, D7: 409 | -100 | -208 | 516 | 298 | 0 | 255 | 0
-    VLD1.S32  Q15,      [R4]          ; Q15   :  -56992    |    34784   |  -70688 |     X
+    VLD1.S16  {D6, D7}, [R12]!        ; D6, D7: 409 | -100 | -208 | 516 | 298 | 0 | 255 | 0
+    VLD1.S32  Q15,      [R12]         ; Q15   :  -56992    |    34784   |  -70688 |     X
+
+    ;==========================================================================
+    ; Load the 5th parameter via stack
+    ; R0 ~ R3 are used to pass the first 4 parameters, the 5th and above
+    ; parameters are passed via stack
+    ;==========================================================================
+    LDR R12, [SP, #4]                 ; LR is the only one that has been pushed
+                                      ; into stack, increment SP by 4 to
+                                      ; get the parameter.
+                                      ; LDMIB SP, {R12} is an equivalent
+                                      ; instruction in this case, where only
+                                      ; one registers were pushed into stack.
 
     ;==========================================================================
     ; Load clamping parameters to duplicate vector elements
@@ -382,16 +417,17 @@ yyvu2rgb565_venum  FUNCTION
     ;==========================================================================
     ; The main loop
     ;==========================================================================
-loop_yyvu2rgb565
+loop_yyvup2rgb565
 
     ;==========================================================================
     ; Load input from Y, V and U
     ; D12, D13: Y0 Y2 Y4 Y6 Y8 Y10 Y12 Y14, Y1 Y3 Y5 Y7 Y9 Y11 Y13 Y15
-    ; D14, D15: V0 V1 V2 V3 V4 V5  V6  V7 , U0 U1 U2 U3 U4 U5  U6  U7
+    ; D14     : V0 V1 V2 V3 V4 V5  V6  V7
+    ; D15     : U0 U1 U2 U3 U4 U5  U6  U7
     ;==========================================================================
-    VLD2.U8  {D12,D13}, [p_luma]!     ; Load 16 Luma elements (uint8) to D12, D13
-    VLD2.U8  {D14,D15}, [p_chroma]!   ; Load and scatter 8 Chroma elements pairs
-                                      ; (uint8) to D14, D15
+    VLD2.U8  {D12,D13}, [p_y]!        ; Load 16 Luma elements (uint8) to D12, D13
+    VLD1.U8  {D14},     [p_cr]!       ; Load 8 Cr elements (uint8) to D14
+    VLD1.U8  {D15},     [p_cb]!       ; Load 8 Cb elements (uint8) to D15
 
     ;==========================================================================
     ; Expand uint8 value to uint16
@@ -469,17 +505,18 @@ loop_yyvu2rgb565
     ; D22:  3 bits of Green + 5 bits of Blue
     ; D23:  5 bits of Red   + 3 bits of Green
     ;==========================================================================
-    VSRI.8   D23, D22, #5	          ; right shift G by 5 and insert to R
+    VSRI.8   D23, D22, #5             ; right shift G by 5 and insert to R
     VSHL.U8, D22, D22, #3             ; left shift G by 3
     VSRI.8   D22, D21, #3             ; right shift B by 3 and insert to G
     SUBS length, length, #8           ; check if the length is less than 8
 
-    BMI  trailing_yyvu2rgb565         ; jump to trailing processing if remaining length is less than 8
+    BMI  trailing_yyvup2rgb565        ; jump to trailing processing if remaining length is less than 8
 
     VST2.U8  {D22,D23}, [p_rgb]!      ; vector store Red, Green, Blue to destination
                                       ; Blue at LSB
 
-    BEQ  end_yyvu2rgb565              ; done if exactly 8 pixels processed in the loop
+    BEQ  end_yyvup2rgb565             ; done if exactly 8 pixels processed in the loop
+
 
     ;==========================================================================
     ; Done with the first 8 elements, continue on the next 8 elements
@@ -548,62 +585,62 @@ loop_yyvu2rgb565
     ; D22:  3 bits of Green + 5 bits of Blue
     ; D23:  5 bits of Red   + 3 bits of Green
     ;==========================================================================
-    VSRI.8   D23, D22, #5	          ; right shift G by 5 and insert to R
+    VSRI.8   D23, D22, #5             ; right shift G by 5 and insert to R
     VSHL.U8, D22, D22, #3             ; left shift G by 3
     VSRI.8   D22, D21, #3             ; right shift B by 3 and insert to G
 
     SUBS length, length, #8           ; check if the length is less than 8
 
-    BMI  trailing_yyvu2rgb565         ; jump to trailing processing if remaining length is less than 8
+    BMI  trailing_yyvup2rgb565        ; jump to trailing processing if remaining length is less than 8
 
     VST2.U8  {D22,D23}, [p_rgb]!      ; vector store Red, Green, Blue to destination
                                       ; Blue at LSB
 
-    BHI loop_yyvu2rgb565              ; loop if more than 8 pixels left
+    BHI loop_yyvup2rgb565             ; loop if more than 8 pixels left
 
-    BEQ  end_yyvu2rgb565              ; done if exactly 8 pixels processed in the loop
+    BEQ  end_yyvup2rgb565             ; done if exactly 8 pixels processed in the loop
 
 
-trailing_yyvu2rgb565
+trailing_yyvup2rgb565
     ;==========================================================================
     ; There are from 1 ~ 7 pixels left in the trailing part.
     ; First adding 7 to the length so the length would be from 0 ~ 6.
     ; eg: 1 pixel left in the trailing part, so 1-8+7 = 0.
-    ; Then save 1 pixel unconditionally since at least 1 pixel left in the
+    ; Then save 1 pixel unconditionally since at least 1 pixels left in the
     ; trailing part.
     ;==========================================================================
     ADDS length, length, #7           ; there are 7 or less in the trailing part
 
     VST2.U8 {D22[0],D23[0]}, [p_rgb]! ; at least 1 pixel left in the trailing part
-    BEQ end_yyvu2rgb565               ; done if 0 pixel left
+    BEQ end_yyvup2rgb565              ; done if 0 pixel left
 
     SUBS length, length, #1           ; update length counter
     VST2.U8 {D22[1],D23[1]}, [p_rgb]! ; store one more pixel
-    BEQ end_yyvu2rgb565               ; done if 0 pixel left
+    BEQ end_yyvup2rgb565              ; done if 0 pixel left
 
     SUBS length, length, #1           ; update length counter
     VST2.U8 {D22[2],D23[2]}, [p_rgb]! ; store one more pixel
-    BEQ end_yyvu2rgb565               ; done if 0 pixel left
+    BEQ end_yyvup2rgb565              ; done if 0 pixel left
 
     SUBS length, length, #1           ; update length counter
     VST2.U8 {D22[3],D23[3]}, [p_rgb]! ; store one more pixel
-    BEQ end_yyvu2rgb565               ; done if 0 pixel left
+    BEQ end_yyvup2rgb565              ; done if 0 pixel left
 
     SUBS length, length, #1           ; update length counter
     VST2.U8 {D22[4],D23[4]}, [p_rgb]! ; store one more pixel
-    BEQ end_yyvu2rgb565               ; done if 0 pixel left
+    BEQ end_yyvup2rgb565              ; done if 0 pixel left
 
     SUBS length, length, #1           ; update length counter
     VST2.U8 {D22[5],D23[5]}, [p_rgb]! ; store one more pixel
-    BEQ end_yyvu2rgb565               ; done if 0 pixel left
+    BEQ end_yyvup2rgb565              ; done if 0 pixel left
 
     SUBS length, length, #1           ; update length counter
     VST2.U8 {D22[6],D23[6]}, [p_rgb]! ; store one more pixel
 
-end_yyvu2rgb565
-    LDMFD SP!, {R4, PC}
+end_yyvup2rgb565
+    LDMFD SP!, {PC}
 
-    ENDFUNC                            ;end of yyvu2rgb565
+    ENDFUNC                           ; end of yyvup2rgb565
 
 
 ;==========================================================================
@@ -616,35 +653,39 @@ constants
 
 
 ;==========================================================================
-; FUNCTION     : yvu2bgr888_venum
+; FUNCTION     : yvup2bgr888_venum
 ;--------------------------------------------------------------------------
-; DESCRIPTION  : Perform YVU to BGR888 conversion.
+; DESCRIPTION  : Perform YVU planar to BGR888 conversion.
 ;--------------------------------------------------------------------------
-; C PROTOTYPE  : void yvu2bgr888_venum(uint8_t  *p_luma,
-;                                 uint8_t  *p_chroma,
+; C PROTOTYPE  : void yvup2bgr888_venum(uint8_t  *p_y,
+;                                 uint8_t  *p_cr,
+;                                 uint8_t  *p_cb,
 ;                                 uint8_t  *p_bgr888,
 ;                                 uint32_t  length)
 ;--------------------------------------------------------------------------
-; REG INPUT    : R0: uint8_t  *p_luma
-;                      pointer to the input Luma Line
-;                R1: uint8_t  *p_chroma
-;                      pointer to the input Chroma Line
-;                R2: uint8_t  *p_bgr888
+; REG INPUT    : R0: uint8_t  *p_y
+;                      pointer to the input Y Line
+;                R1: uint8_t  *p_cr
+;                      pointer to the input Cr Line
+;                R2: uint8_t  *p_cb
+;                      pointer to the input Cb Line
+;                R3: uint8_t  *p_bgr888
 ;                      pointer to the output BGR Line
-;                R3: uint32_t  length
+;                R12: uint32_t  length
 ;                      width of Line
 ;--------------------------------------------------------------------------
 ; STACK ARG    : None
 ;--------------------------------------------------------------------------
 ; REG OUTPUT   : None
 ;--------------------------------------------------------------------------
-; MEM INPUT    : p_luma   - a line of luma pixels
-;                p_chroma - a line of chroma pixels
+; MEM INPUT    : p_y      - a line of Y pixels
+;                p_cr     - a line of Cr pixels
+;                p_cb     - a line of Cb pixels
 ;                length   - the width of the input line
 ;--------------------------------------------------------------------------
 ; MEM OUTPUT   : p_bgr888 - the converted bgr pixels
 ;--------------------------------------------------------------------------
-; REG AFFECTED : ARM:  R0-R4
+; REG AFFECTED : ARM:  R0-R4, R12
 ;                NEON: Q0-Q15
 ;--------------------------------------------------------------------------
 ; STACK USAGE  : none
@@ -654,19 +695,32 @@ constants
 ;--------------------------------------------------------------------------
 ; NOTES        :
 ;==========================================================================
-yvu2bgr888_venum  FUNCTION
+
+yvup2bgr888_venum  FUNCTION
 
     ;==========================================================================
     ; Store stack registers
     ;==========================================================================
-    STMFD SP!, {R4, LR}
+    STMFD SP!, {LR}
 
     PLD [R0, R3]                      ; preload luma line
 
-    ADR   R4, constants
+    ADR   R12, constants
 
-    VLD1.S16  {D6, D7}, [R4]!         ; D6, D7: 409 | -100 | -208 | 516 | 298 | 0 | 255 | 0
-    VLD1.S32  Q15,      [R4]          ; Q15   :  -56992    |    34784   |  -70688 |     X
+    VLD1.S16  {D6, D7}, [R12]!         ; D6, D7: 409 | -100 | -208 | 516 | 298 | 0 | 255 | 0
+    VLD1.S32  Q15,      [R12]          ; Q15   :  -56992    |    34784   |  -70688 |     X
+
+    ;==========================================================================
+    ; Load the 5th parameter via stack
+    ; R0 ~ R3 are used to pass the first 4 parameters, the 5th and above
+    ; parameters are passed via stack
+    ;==========================================================================
+    LDR R12, [SP, #4]                 ; LR is the only one that has been pushed
+                                      ; into stack, increment SP by 4 to
+                                      ; get the parameter.
+                                      ; LDMIB SP, {R12} is an equivalent
+                                      ; instruction in this case, where only
+                                      ; one registers were pushed into stack.
 
     ;==========================================================================
     ; Load clamping parameters to duplicate vector elements
@@ -685,16 +739,17 @@ yvu2bgr888_venum  FUNCTION
     ;==========================================================================
     ; The main loop
     ;==========================================================================
-loop_yvu2bgr888
+loop_yvup2bgr888
 
     ;==========================================================================
     ; Load input from Y, V and U
     ; D12     : Y0  Y1  Y2  Y3  Y4  Y5  Y6  Y7
-    ; D14, D15: V0  V1  V2  V3  V4  V5  V6  V7,  U0  U1  U2  U3  U4  U5   U6  U7
+    ; D14  : V0  V1  V2  V3  V4  V5  V6  V7
+    ; D15  : U0  U1  U2  U3  U4  U5  U6  U7
     ;==========================================================================
-    VLD1.U8  {D12},     [p_luma]!     ; Load 8 Luma elements (uint8) to D12
-    VLD2.U8  {D14,D15}, [p_chroma]!   ; Load and scatter 8 Chroma elements pairs
-                                      ; (uint8) to D14, D15
+    VLD1.U8  {D12},  [p_y]!           ; Load 8 Luma elements (uint8) to D12
+    VLD1.U8  {D14},  [p_cr]!          ; Load 8 Cr elements (uint8) to D14
+    VLD1.U8  {D15},  [p_cb]!          ; Load 8 Cb elements (uint8) to D15
 
     ;==========================================================================
     ; Expand uint8 value to uint16
@@ -785,17 +840,17 @@ loop_yvu2bgr888
 
     SUBS length, length, #8           ; check if the length is less than 8
 
-    BMI  trailing_yvu2bgr888          ; jump to trailing processing if remaining length is less than 8
+    BMI  trailing_yvup2bgr888          ; jump to trailing processing if remaining length is less than 8
 
-    VST3.U8  {D26,D27,D28}, [p_rgb]!  ; vector store Red, Green, Blue to destination
+    VST3.U8  {D26,D27,D28}, [p_bgr]!  ; vector store Red, Green, Blue to destination
                                       ; Blue at LSB
 
-    BHI loop_yvu2bgr888               ; loop if more than 8 pixels left
+    BHI loop_yvup2bgr888               ; loop if more than 8 pixels left
 
-    BEQ  end_yvu2bgr888               ; done if exactly 8 pixel processed in the loop
+    BEQ  end_yvup2bgr888               ; done if exactly 8 pixels processed in the loop
 
 
-trailing_yvu2bgr888
+trailing_yvup2bgr888
     ;==========================================================================
     ; There are from 1 ~ 7 pixels left in the trailing part.
     ; First adding 7 to the length so the length would be from 0 ~ 6.
@@ -805,68 +860,72 @@ trailing_yvu2bgr888
     ;==========================================================================
     ADDS length, length, #7           ; there are 7 or less in the trailing part
 
-    VST3.U8 {D26[0], D27[0], D28[0]}, [p_rgb]! ; at least 1 pixel left in the trailing part
-    BEQ  end_yvu2bgr888	              ; done if 0 pixel left
+    VST3.U8 {D26[0], D27[0], D28[0]}, [p_bgr]! ; at least 1 pixel left in the trailing part
+    BEQ  end_yvup2bgr888                  ; done if 0 pixel left
 
     SUBS length, length, #1           ; update length counter
-    VST3.U8 {D26[1], D27[1], D28[1]}, [p_rgb]!  ; store one more pixel
-    BEQ  end_yvu2bgr888	              ; done if 0 pixel left
+    VST3.U8 {D26[1], D27[1], D28[1]}, [p_bgr]!  ; store one more pixel
+    BEQ  end_yvup2bgr888                  ; done if 0 pixel left
 
     SUBS length, length, #1           ; update length counter
-    VST3.U8 {D26[2], D27[2], D28[2]}, [p_rgb]!  ; store one more pixel
-    BEQ  end_yvu2bgr888	              ; done if 0 pixel left
+    VST3.U8 {D26[2], D27[2], D28[2]}, [p_bgr]!  ; store one more pixel
+    BEQ  end_yvup2bgr888                  ; done if 0 pixel left
 
     SUBS length, length, #1           ; update length counter
-    VST3.U8 {D26[3], D27[3], D28[3]}, [p_rgb]!  ; store one more pixel
-    BEQ  end_yvu2bgr888	              ; done if 0 pixel left
+    VST3.U8 {D26[3], D27[3], D28[3]}, [p_bgr]!  ; store one more pixel
+    BEQ  end_yvup2bgr888                  ; done if 0 pixel left
 
     SUBS length, length, #1           ; update length counter
-    VST3.U8 {D26[4], D27[4], D28[4]}, [p_rgb]!  ; store one more pixel
-    BEQ  end_yvu2bgr888	              ; done if 0 pixel left
+    VST3.U8 {D26[4], D27[4], D28[4]}, [p_bgr]!  ; store one more pixel
+    BEQ  end_yvup2bgr888                  ; done if 0 pixel left
 
     SUBS length, length, #1           ; update length counter
-    VST3.U8 {D26[5], D27[5], D28[5]}, [p_rgb]!  ; store one more pixel
-    BEQ  end_yvu2bgr888	              ; done if 0 pixel left
+    VST3.U8 {D26[5], D27[5], D28[5]}, [p_bgr]!  ; store one more pixel
+    BEQ  end_yvup2bgr888                  ; done if 0 pixel left
 
     SUBS length, length, #1           ; update length counter
-    VST3.U8 {D26[6], D27[6], D28[6]}, [p_rgb]!	; store one more pixel
+    VST3.U8 {D26[6], D27[6], D28[6]}, [p_bgr]!    ; store one more pixel
 
-end_yvu2bgr888
-    LDMFD SP!, {R4, PC}
+end_yvup2bgr888
+    LDMFD SP!, {PC}
 
-    ENDFUNC                           ; end of yvu2bgr888
+    ENDFUNC                           ; end of yvup2bgr888
 
 
 ;==========================================================================
-; FUNCTION     : yyvu2bgr888_venum
+; FUNCTION     : yyvup2bgr888_venum
 ;--------------------------------------------------------------------------
-; DESCRIPTION  : Perform YYVU to BGR888 conversion.
+; DESCRIPTION  : Perform YYVU planar to BGR888 conversion.
 ;--------------------------------------------------------------------------
-; C PROTOTYPE  : void yyvu2bgr888_venum(uint8_t  *p_luma,
-;                                 uint8_t  *p_chroma,
+; C PROTOTYPE  : void yyvup2bgr888_venum(uint8_t  *p_y,
+;                                 uint8_t  *p_cr,
+;                                 uint8_t  *p_cb,
 ;                                 uint8_t  *p_bgr888,
 ;                                 uint32_t  length)
 ;--------------------------------------------------------------------------
-; REG INPUT    : R0: uint8_t  *p_luma
-;                      pointer to the input Luma Line
-;                R1: uint8_t  *p_chroma
-;                      pointer to the input Chroma Line
-;                R2: uint8_t  *p_bgr888
+; REG INPUT    : R0: uint8_t  *p_y
+;                      pointer to the input Y Line
+;                R1: uint8_t  *p_cr
+;                      pointer to the input Cr Line
+;                R2: uint8_t  *p_cb
+;                      pointer to the input Cb Line
+;                R3: uint8_t  *p_bgr888
 ;                      pointer to the output BGR Line
-;                R3: uint32_t  length
+;                R12: uint32_t  length
 ;                      width of Line
 ;--------------------------------------------------------------------------
 ; STACK ARG    : None
 ;--------------------------------------------------------------------------
 ; REG OUTPUT   : None
 ;--------------------------------------------------------------------------
-; MEM INPUT    : p_luma   - a line of luma pixels
-;                p_chroma - a line of chroma pixels
+; MEM INPUT    : p_y      - a line of Y pixels
+;                p_cr     - a line of Cr pixels
+;                p_cb     - a line of Cb pixels
 ;                length   - the width of the input line
 ;--------------------------------------------------------------------------
 ; MEM OUTPUT   : p_bgr888 - the converted bgr pixels
 ;--------------------------------------------------------------------------
-; REG AFFECTED : ARM:  R0-R4
+; REG AFFECTED : ARM:  R0-R4, R12
 ;                NEON: Q0-Q15
 ;--------------------------------------------------------------------------
 ; STACK USAGE  : none
@@ -876,19 +935,31 @@ end_yvu2bgr888
 ;--------------------------------------------------------------------------
 ; NOTES        :
 ;==========================================================================
-yyvu2bgr888_venum  FUNCTION
+yyvup2bgr888_venum  FUNCTION
 
     ;==========================================================================
     ; Store stack registers
     ;==========================================================================
-    STMFD SP!, {R4, LR}
+    STMFD SP!, {LR}
 
     PLD [R0, R3]                      ; preload luma line
 
-    ADR   R4, constants
+    ADR   R12, constants
 
-    VLD1.S16  {D6, D7}, [R4]!         ; D6, D7: 409 | -100 | -208 | 516 | 298 | 0 | 255 | 0
-    VLD1.S32  Q15,      [R4]          ; Q15   :  -56992    |    34784   |  -70688 |     X
+    VLD1.S16  {D6, D7}, [R12]!        ; D6, D7: 409 | -100 | -208 | 516 | 298 | 0 | 255 | 0
+    VLD1.S32  Q15,      [R12]         ; Q15   :  -56992    |    34784   |  -70688 |     X
+
+     ;==========================================================================
+    ; Load the 5th parameter via stack
+    ; R0 ~ R3 are used to pass the first 4 parameters, the 5th and above
+    ; parameters are passed via stack
+    ;==========================================================================
+    LDR R12, [SP, #4]                 ; LR is the only one that has been pushed
+                                      ; into stack, increment SP by 4 to
+                                      ; get the parameter.
+                                      ; LDMIB SP, {R12} is an equivalent
+                                      ; instruction in this case, where only
+                                      ; one registers were pushed into stack.
 
     ;==========================================================================
     ; Load clamping parameters to duplicate vector elements
@@ -907,16 +978,17 @@ yyvu2bgr888_venum  FUNCTION
     ;==========================================================================
     ; The main loop
     ;==========================================================================
-loop_yyvu2bgr888
+loop_yyvup2bgr888
 
     ;==========================================================================
     ; Load input from Y, V and U
     ; D12, D13: Y0 Y2 Y4 Y6 Y8 Y10 Y12 Y14, Y1 Y3 Y5 Y7 Y9 Y11 Y13 Y15
-    ; D14, D15: V0 V1 V2 V3 V4 V5  V6  V7 , U0 U1 U2 U3 U4 U5  U6  U7
+    ; D14  : V0  V1  V2  V3  V4  V5  V6  V7
+    ; D15  : U0  U1  U2  U3  U4  U5  U6  U7
     ;==========================================================================
-    VLD2.U8  {D12,D13}, [p_luma]!     ; Load 16 Luma elements (uint8) to D12, D13
-    VLD2.U8  {D14,D15}, [p_chroma]!   ; Load and scatter 8 Chroma elements pairs
-                                      ; (uint8) to D14, D15
+    VLD2.U8  {D12,D13}, [p_y]!        ; Load 16 Luma elements (uint8) to D12, D13
+    VLD1.U8  {D14},  [p_cr]!          ; Load 8 Cr elements (uint8) to D14
+    VLD1.U8  {D15},  [p_cb]!          ; Load 8 Cb elements (uint8) to D15
 
     ;==========================================================================
     ; Expand uint8 value to uint16
@@ -992,12 +1064,12 @@ loop_yyvu2bgr888
 
     SUBS length, length, #8           ; check if the length is less than 8
 
-    BMI  trailing_yyvu2bgr888         ; jump to trailing processing if remaining length is less than 8
+    BMI  trailing_yyvup2bgr888         ; jump to trailing processing if remaining length is less than 8
 
-    VST3.U8  {D21,D22,D23}, [p_rgb]!  ; vector store Blue, Green, Red to destination
+    VST3.U8  {D21,D22,D23}, [p_bgr]!  ; vector store Blue, Green, Red to destination
                                       ; Red at LSB
 
-    BEQ  end_yyvu2bgr888              ; done if exactly 8 pixels processed in the loop
+    BEQ  end_yyvup2bgr888              ; done if exactly 8 pixels processed in the loop
 
     ;==========================================================================
     ; Done with the first 8 elements, continue on the next 8 elements
@@ -1065,55 +1137,54 @@ loop_yyvu2bgr888
 
     SUBS length, length, #8           ; check if the length is less than 8
 
-    BMI  trailing_yyvu2bgr888         ; jump to trailing processing if remaining length is less than 8
+    BMI  trailing_yyvup2bgr888        ; jump to trailing processing if remaining length is less than 8
 
-    VST3.U8  {D21,D22,D23}, [p_rgb]!  ; vector store Blue, Green, Red to destination
+    VST3.U8  {D21,D22,D23}, [p_bgr]!  ; vector store Blue, Green, Red to destination
                                       ; Red at LSB
 
-    BHI loop_yyvu2bgr888              ; loop if more than 8 pixels left
+    BHI loop_yyvup2bgr888             ; loop if more than 8 pixels left
 
-    BEQ  end_yyvu2bgr888              ; done if exactly 8 pixels processed in the loop
+    BEQ  end_yyvup2bgr888             ; done if exactly 8 pixels processed in the loop
 
 
-trailing_yyvu2bgr888
+trailing_yyvup2bgr888
     ;==========================================================================
     ; There are from 1 ~ 7 pixels left in the trailing part.
     ; First adding 7 to the length so the length would be from 0 ~ 6.
     ; eg: 1 pixel left in the trailing part, so 1-8+7 = 0.
-    ; Then save 1 pixel unconditionally since at least 1 pixel left in the
+    ; Then save 1 pixel unconditionally since at least 1 pixels left in the
     ; trailing part.
     ;==========================================================================
     ADDS length, length, #7           ; there are 7 or less in the trailing part
 
-    VST3.U8 {D21[0],D22[0],D23[0]}, [p_rgb]! ; at least 1 pixel left in the trailing part
-    BEQ end_yyvu2bgr888               ; done if 0 pixel left
+    VST3.U8 {D21[0],D22[0],D23[0]}, [p_bgr]! ; at least 1 pixel left in the trailing part
+    BEQ end_yyvup2bgr888               ; done if 0 pixel left
 
     SUBS length, length, #1           ; update length counter
-    VST3.U8 {D21[1],D22[1],D23[1]}, [p_rgb]!  ; store one more pixel
-    BEQ end_yyvu2bgr888               ; done if 0 pixel left
+    VST3.U8 {D21[1],D22[1],D23[1]}, [p_bgr]!  ; store one more pixel
+    BEQ end_yyvup2bgr888               ; done if 0 pixel left
 
     SUBS length, length, #1           ; update length counter
-    VST3.U8 {D21[2],D22[2],D23[2]}, [p_rgb]!  ; store one more pixel
-    BEQ end_yyvu2bgr888               ; done if 0 pixel left
+    VST3.U8 {D21[2],D22[2],D23[2]}, [p_bgr]!  ; store one more pixel
+    BEQ end_yyvup2bgr888               ; done if 0 pixel left
 
     SUBS length, length, #1           ; update length counter
-    VST3.U8 {D21[3],D22[3],D23[3]}, [p_rgb]!  ; store one more pixel
-    BEQ end_yyvu2bgr888               ; done if 0 pixel left
+    VST3.U8 {D21[3],D22[3],D23[3]}, [p_bgr]!  ; store one more pixel
+    BEQ end_yyvup2bgr888               ; done if 0 pixel left
 
     SUBS length, length, #1           ; update length counter
-    VST3.U8 {D21[4],D22[4],D23[4]}, [p_rgb]!  ; store one more pixel
-    BEQ end_yyvu2bgr888               ; done if 0 pixel left
+    VST3.U8 {D21[4],D22[4],D23[4]}, [p_bgr]!  ; store one more pixel
+    BEQ end_yyvup2bgr888               ; done if 0 pixel left
 
     SUBS length, length, #1           ; update length counter
-    VST3.U8 {D21[5],D22[5],D23[5]}, [p_rgb]!  ; store one more pixel
-    BEQ end_yyvu2bgr888               ; done if 0 pixel left
+    VST3.U8 {D21[5],D22[5],D23[5]}, [p_bgr]!  ; store one more pixel
+    BEQ end_yyvup2bgr888               ; done if 0 pixel left
 
     SUBS length, length, #1           ; update length counter
-    VST3.U8 {D21[6],D22[6],D23[6]}, [p_rgb]!  ; store one more pixel
+    VST3.U8 {D21[6],D22[6],D23[6]}, [p_bgr]!  ; store one more pixel
 
-end_yyvu2bgr888
-    LDMFD SP!, {R4, PC}
+end_yyvup2bgr888
+    LDMFD SP!, {PC}
 
-    ENDFUNC                           ; end of yyvu2bgr888
-
+    ENDFUNC                           ; end of yyvup2bgr888
     END

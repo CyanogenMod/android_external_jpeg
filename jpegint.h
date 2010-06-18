@@ -270,20 +270,24 @@ EXTERN (void) idct_4x4_venum (INT16 * coeffPtr, INT16 * samplePtr, INT32 stride)
 EXTERN (void) idct_8x8_venum (INT16 * coeffPtr, INT16 * samplePtr, INT32 stride);
 
 /* Color conversion routines */
-EXTERN (void) yvu2rgb565_venum (UINT8 *pLumaLine,
-                       UINT8 *pChromaLine,
+EXTERN (void) yvup2rgb565_venum (UINT8 *pLumaLine,
+                       UINT8 *pCrLine,
+                       UINT8 *pCbLine,
                        UINT8 *pRGB565Line,
                        JDIMENSION nLineWidth);
-EXTERN (void) yyvu2rgb565_venum (UINT8 * pLumaLine,
-                       UINT8 * pChromaLine,
+EXTERN (void) yyvup2rgb565_venum (UINT8 * pLumaLine,
+                       UINT8 *pCrLine,
+                       UINT8 *pCbLine,
                        UINT8 * pRGB565Line,
                        JDIMENSION nLineWidth);
-EXTERN (void) yvu2bgr888_venum (UINT8 * pLumaLine,
-                       UINT8 * pChromaLine,
+EXTERN (void) yvup2bgr888_venum (UINT8 * pLumaLine,
+                       UINT8 *pCrLine,
+                       UINT8 *pCbLine,
                        UINT8 * pBGR888Line,
                        JDIMENSION nLineWidth);
-EXTERN (void) yyvu2bgr888_venum (UINT8 * pLumaLine,
-                       UINT8 * pChromaLine,
+EXTERN (void) yyvup2bgr888_venum (UINT8 * pLumaLine,
+                       UINT8 *pCrLine,
+                       UINT8 *pCbLine,
                        UINT8 * pBGR888Line,
                        JDIMENSION nLineWidth);
 
