@@ -87,3 +87,22 @@ LOCAL_MODULE:= libjpeg
 
 include $(BUILD_STATIC_LIBRARY)
 
+
+include $(CLEAR_VARS)
+
+LOCAL_PATH:= $(LIB_JPEG_PATH)
+
+LOCAL_ARM_MODE := arm
+
+LOCAL_SRC_FILES := $(common_SRC_FILES)
+LOCAL_CFLAGS += $(common_CFLAGS)
+
+ifeq ($(ANDROID_JPEG_USE_VENUM),true)
+LOCAL_WHOLE_STATIC_LIBRARIES := libjpeg-venum
+endif
+
+LOCAL_MODULE:= libjpeg
+
+LOCAL_PRELINK_MODULE := false
+
+include $(BUILD_SHARED_LIBRARY)
