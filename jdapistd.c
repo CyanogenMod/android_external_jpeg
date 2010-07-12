@@ -82,6 +82,32 @@ jpeg_start_decompress (j_decompress_ptr cinfo)
   return output_pass_setup(cinfo);
 }
 
+/*
+ * Tile decompression initialization.
+ * jpeg_read_header must be completed before calling this.
+ */
+
+GLOBAL(boolean)
+jpeg_start_tile_decompress (j_decompress_ptr cinfo)
+{
+  if (cinfo->global_state == DSTATE_READY) {
+    /* First call: initialize master control, select active modules */
+    cinfo->tile_decode = TRUE;
+    jinit_master_decompress(cinfo);
+    if (cinfo->buffered_image) {
+      cinfo->global_state = DSTATE_BUFIMAGE;
+      return TRUE;
+    }
+    cinfo->global_state = DSTATE_PRELOAD;
+  }
+  if (cinfo->global_state == DSTATE_PRELOAD) {
+    cinfo->output_scan_number = cinfo->input_scan_number;
+  } else if (cinfo->global_state != DSTATE_PRESCAN)
+    ERREXIT1(cinfo, JERR_BAD_STATE, cinfo->global_state);
+  /* Perform any dummy output passes, and set up for the final pass */
+  return output_pass_setup(cinfo);
+}
+
 
 /*
  * Set up for an output pass, and perform any dummy pass(es) needed.
@@ -189,14 +215,17 @@ jpeg_init_read_tile_scanline(j_decompress_ptr cinfo, huffman_index *index,
   int lines_per_iMCU_row = cinfo->max_v_samp_factor * DCTSIZE;
   int lines_per_iMCU_col = cinfo->max_h_samp_factor * DCTSIZE;
   int row_offset = *start_y / lines_per_iMCU_row;
-  int col_left_boundary = ((*start_x / lines_per_iMCU_col) / index->MCU_sample_size)
-      * index->MCU_sample_size;
-  int col_right_boundary = (*start_x + *width + lines_per_iMCU_col - 1) / lines_per_iMCU_col;
+  int col_left_boundary = ((*start_x / lines_per_iMCU_col)
+            / index->MCU_sample_size) * index->MCU_sample_size;
+  int col_right_boundary = (*start_x + *width + lines_per_iMCU_col - 1)
+            / lines_per_iMCU_col;
 
   *height = (*start_y - row_offset * lines_per_iMCU_row) + *height;
   *start_x = col_left_boundary * lines_per_iMCU_col;
   *start_y = row_offset * lines_per_iMCU_row;
-  cinfo->image_width = (col_right_boundary - col_left_boundary) * lines_per_iMCU_col;
+  cinfo->image_width = jmin(cinfo->original_image_width -
+          col_left_boundary * lines_per_iMCU_col,
+          (col_right_boundary - col_left_boundary) * lines_per_iMCU_col);
   cinfo->input_iMCU_row = row_offset;
   cinfo->output_iMCU_row = row_offset;
 
@@ -204,14 +233,28 @@ jpeg_init_read_tile_scanline(j_decompress_ptr cinfo, huffman_index *index,
   jinit_color_deconverter(cinfo);
   jpeg_calc_output_dimensions(cinfo);
   jinit_upsampler(cinfo);
-  jpeg_decompress_per_scan_setup(cinfo);
-  cinfo->MCUs_per_row = col_right_boundary - col_left_boundary;
+  (*cinfo->master->prepare_for_output_pass) (cinfo);
+  if (cinfo->progressive_mode)
+    (*cinfo->entropy->start_pass) (cinfo);
+  else
+    jpeg_decompress_per_scan_setup(cinfo);
 
   int sampleSize = cinfo->image_width / cinfo->output_width;
   *height /= sampleSize;
   *width = cinfo->output_width;
   cinfo->output_scanline = lines_per_iMCU_row * row_offset / sampleSize;
-  (*cinfo->master->prepare_for_output_pass) (cinfo);
+  cinfo->inputctl->consume_input = cinfo->coef->consume_data;
+  cinfo->inputctl->consume_input_build_huffman_index =
+      cinfo->coef->consume_data_build_huffman_index;
+  cinfo->entropy->index = index;
+  cinfo->input_iMCU_row = row_offset;
+  cinfo->output_iMCU_row = row_offset;
+  cinfo->coef->MCU_column_left_boundary = col_left_boundary;
+  cinfo->coef->MCU_column_right_boundary = col_right_boundary;
+  cinfo->coef->column_left_boundary =
+      col_left_boundary / index->MCU_sample_size;
+  cinfo->coef->column_right_boundary =
+      jdiv_round_up(col_right_boundary, index->MCU_sample_size);
 }
 
 /*
@@ -227,26 +270,29 @@ jpeg_read_tile_scanline (j_decompress_ptr cinfo, huffman_index *index,
   // Calculates the boundary of iMCU
   int lines_per_iMCU_row = cinfo->max_v_samp_factor * DCTSIZE;
   int lines_per_iMCU_col = cinfo->max_h_samp_factor * DCTSIZE;
-  int col_left_boundary = ((start_x / lines_per_iMCU_col) / index->MCU_sample_size)
-      * index->MCU_sample_size;
+  int col_left_boundary = ((start_x / lines_per_iMCU_col)
+          / index->MCU_sample_size) * index->MCU_sample_size;
   int sampleSize = cinfo->image_width / cinfo->output_width;
+  int row_ctr = 0;
 
-  if (cinfo->output_scanline % (lines_per_iMCU_row / sampleSize) == 0) {
-    // Set the read head to the next iMCU row
-    cinfo->unread_marker = 0;
-    int iMCU_row_offset = cinfo->output_scanline / (lines_per_iMCU_row / sampleSize);
-    int offset_data_col_position = col_left_boundary / index->MCU_sample_size;
-    huffman_offset_data *offset_data =
-        &index->scan[0].offset[iMCU_row_offset][offset_data_col_position];
-
-    jpeg_configure_huffman_decoder(cinfo,
-            offset_data->bitstream_offset, offset_data->prev_dc);
+  if (cinfo->progressive_mode) {
+    (*cinfo->main->process_data) (cinfo, scanlines, &row_ctr, 1);
+  } else {
+    if (cinfo->output_scanline % (lines_per_iMCU_row / sampleSize) == 0) {
+      // Set the read head to the next iMCU row
+      int iMCU_row_offset = cinfo->output_scanline /
+            (lines_per_iMCU_row / sampleSize);
+      int offset_data_col_position = col_left_boundary / index->MCU_sample_size;
+      huffman_offset_data offset_data =
+          index->scan[0].offset[iMCU_row_offset][offset_data_col_position];
+      (*cinfo->entropy->configure_huffman_decoder) (cinfo, offset_data);
+    }
+    (*cinfo->main->process_data) (cinfo, scanlines, &row_ctr, 1);
   }
 
-  int row_ctr = jpeg_read_scanlines(cinfo, scanlines, 1); // Read one line
+  cinfo->output_scanline += row_ctr;
   return row_ctr;
 }
-
 
 /*
  * Alternate entry point to read raw data.

@@ -53,6 +53,7 @@ jpeg_CreateDecompress (j_decompress_ptr cinfo, int version, size_t structsize)
     cinfo->client_data = client_data;
   }
   cinfo->is_decompressor = TRUE;
+  cinfo->tile_decode = FALSE;
 
   /* Initialize a memory manager instance for this object */
   jinit_memory_mgr((j_common_ptr) cinfo);

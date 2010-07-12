@@ -145,7 +145,9 @@ struct jpeg_decomp_master {
 /* Input control module */
 struct jpeg_input_controller {
   JMETHOD(int, consume_input, (j_decompress_ptr cinfo));
-  JMETHOD(int, consume_input_with_huffman_index, (j_decompress_ptr cinfo,
+  JMETHOD(int, consume_input_build_huffman_index, (j_decompress_ptr cinfo,
+                    huffman_index *index, int scan_count));
+  JMETHOD(int, consume_markers, (j_decompress_ptr cinfo,
                     huffman_index *index, int scan_count));
   JMETHOD(void, reset_input_controller, (j_decompress_ptr cinfo));
   JMETHOD(void, start_input_pass, (j_decompress_ptr cinfo));
@@ -168,13 +170,17 @@ struct jpeg_d_main_controller {
 struct jpeg_d_coef_controller {
   JMETHOD(void, start_input_pass, (j_decompress_ptr cinfo));
   JMETHOD(int, consume_data, (j_decompress_ptr cinfo));
-  JMETHOD(int, consume_data_with_huffman_index, (j_decompress_ptr cinfo,
+  JMETHOD(int, consume_data_build_huffman_index, (j_decompress_ptr cinfo,
                     huffman_index* index, int scan_count));
   JMETHOD(void, start_output_pass, (j_decompress_ptr cinfo));
   JMETHOD(int, decompress_data, (j_decompress_ptr cinfo,
 				 JSAMPIMAGE output_buf));
   /* Pointer to array of coefficient virtual arrays, or NULL if none */
   jvirt_barray_ptr *coef_arrays;
+  int column_left_boundary;
+  int column_right_boundary;
+  int MCU_column_left_boundary;
+  int MCU_column_right_boundary;
 };
 
 /* Decompression postprocessing (color quantization buffer control) */
@@ -197,6 +203,8 @@ struct jpeg_marker_reader {
    * JPEG_SUSPENDED, JPEG_REACHED_SOS, or JPEG_REACHED_EOI.
    */
   JMETHOD(int, read_markers, (j_decompress_ptr cinfo));
+  JMETHOD(void, get_sos_marker_position, (j_decompress_ptr cinfo,
+                    huffman_index *index));
   /* Read a restart marker --- exported for use by entropy decoder only */
   jpeg_marker_parser_method read_restart_marker;
 
@@ -206,6 +214,7 @@ struct jpeg_marker_reader {
   boolean saw_SOI;		/* found SOI? */
   boolean saw_SOF;		/* found SOF? */
   int next_restart_num;		/* next restart number expected (0-7) */
+  int current_sos_marker_position;
   unsigned int discarded_bytes;	/* # of bytes skipped looking for a marker */
 };
 
@@ -215,10 +224,16 @@ struct jpeg_entropy_decoder {
   JMETHOD(boolean, decode_mcu, (j_decompress_ptr cinfo,
 				JBLOCKROW *MCU_data));
   JMETHOD(boolean, decode_mcu_discard_coef, (j_decompress_ptr cinfo));
+  JMETHOD(void, configure_huffman_decoder, (j_decompress_ptr cinfo,
+                    huffman_offset_data offset));
+  JMETHOD(void, get_huffman_decoder_configuration, (j_decompress_ptr cinfo,
+                    huffman_offset_data *offset));
 
   /* This is here to share code between baseline and progressive decoders; */
   /* other modules probably should not use it */
   boolean insufficient_data;	/* set TRUE after emitting warning */
+
+  huffman_index *index;
 };
 
 /* Inverse DCT (also performs dequantization) */
@@ -377,12 +392,20 @@ EXTERN(void) jinit_memory_mgr JPP((j_common_ptr cinfo));
 /* Utility routines in jutils.c */
 EXTERN(long) jdiv_round_up JPP((long a, long b));
 EXTERN(long) jround_up JPP((long a, long b));
+EXTERN(long) jmin JPP((long a, long b));
 EXTERN(void) jcopy_sample_rows JPP((JSAMPARRAY input_array, int source_row,
 				    JSAMPARRAY output_array, int dest_row,
 				    int num_rows, JDIMENSION num_cols));
 EXTERN(void) jcopy_block_row JPP((JBLOCKROW input_row, JBLOCKROW output_row,
 				  JDIMENSION num_blocks));
 EXTERN(void) jzero_far JPP((void FAR * target, size_t bytestozero));
+
+EXTERN(void) jset_input_stream_position JPP((j_decompress_ptr cinfo,
+                    int offset));
+EXTERN(void) jset_input_stream_position_bit JPP((j_decompress_ptr cinfo,
+                    int byte_offset, int bit_left, INT32 buf));
+
+EXTERN(int) jget_input_stream_position JPP((j_decompress_ptr cinfo));
 /* Constant tables in jutils.c */
 #if 0				/* This table is not actually needed in v6a */
 extern const int jpeg_zigzag_order[]; /* natural coef order to zigzag order */

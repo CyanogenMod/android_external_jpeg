@@ -421,7 +421,10 @@ struct jpeg_decompress_struct {
   /* Basic description of image --- filled in by jpeg_read_header(). */
   /* Application may inspect these values to decide how to process image. */
 
-  JDIMENSION image_width;	/* nominal image width (from SOF marker) */
+  JDIMENSION original_image_width;	/* nominal image width (from SOF marker) */
+
+  JDIMENSION image_width;	/* nominal image width (from SOF marker)
+                               may be changed by tile decode */
   JDIMENSION image_height;	/* nominal image height */
   int num_components;		/* # of color components in JPEG image */
   J_COLOR_SPACE jpeg_color_space; /* colorspace of JPEG image */
@@ -539,6 +542,7 @@ struct jpeg_decompress_struct {
   jpeg_component_info * comp_info;
   /* comp_info[i] describes component that appears i'th in SOF */
 
+  boolean tile_decode;         /* TRUE if using tile based decoding */
   boolean progressive_mode;	/* TRUE if SOFn specifies progressive mode */
   boolean arith_code;		/* TRUE=arithmetic coding, FALSE=Huffman */
 
@@ -639,6 +643,12 @@ typedef struct {
   //  \------ 27 -------/ \---- 5 ----/
   unsigned int bitstream_offset;
   short prev_dc[3];
+
+  // remaining EOBs in EOBRUN
+  unsigned short EOBRUN;
+
+  // save the decoder current bit buffer, entropy->bitstate.get_buffer.
+  INT32 get_buffer;
 } huffman_offset_data;
 
 typedef struct {
@@ -652,6 +662,9 @@ typedef struct {
   // Number of MCUs in each row
   int MCUs_per_row;
   int MCU_rows_per_iMCU_row;
+
+  // The last MCU position and its dc value in this scan
+  huffman_offset_data prev_MCU_offset;
 
   huffman_offset_data **offset;
 } huffman_scan_header;
@@ -673,7 +686,6 @@ typedef struct {
   size_t mem_used;
   huffman_scan_header *scan;
 } huffman_index;
-
 
 /* "Object" declarations for JPEG modules that may be supplied or called
  * directly by the surrounding application.
@@ -771,13 +783,14 @@ struct jpeg_source_mgr {
   const JOCTET * next_input_byte; /* => next byte to read from buffer */
   const JOCTET * start_input_byte; /* => first byte to read from input */
   size_t bytes_in_buffer;	/* # of bytes remaining in buffer */
-  size_t total_byte; /* # of bytes in input */
+  size_t current_offset; /* current readed input offset */
 
   JMETHOD(void, init_source, (j_decompress_ptr cinfo));
   JMETHOD(boolean, fill_input_buffer, (j_decompress_ptr cinfo));
   JMETHOD(void, skip_input_data, (j_decompress_ptr cinfo, long num_bytes));
   JMETHOD(boolean, resync_to_restart, (j_decompress_ptr cinfo, int desired));
   JMETHOD(void, term_source, (j_decompress_ptr cinfo));
+  JMETHOD(boolean, seek_input_data, (j_decompress_ptr cinfo, long byte_offset));
 };
 
 
@@ -1020,6 +1033,7 @@ EXTERN(int) jpeg_read_header JPP((j_decompress_ptr cinfo,
 
 /* Main entry points for decompression */
 EXTERN(boolean) jpeg_start_decompress JPP((j_decompress_ptr cinfo));
+EXTERN(boolean) jpeg_start_tile_decompress JPP((j_decompress_ptr cinfo));
 EXTERN(JDIMENSION) jpeg_read_scanlines JPP((j_decompress_ptr cinfo,
 					    JSAMPARRAY scanlines,
 					    JDIMENSION max_lines));
@@ -1073,7 +1087,8 @@ EXTERN(void) jpeg_set_marker_processor
 
 /* Read or write raw DCT coefficients --- useful for lossless transcoding. */
 EXTERN(jvirt_barray_ptr *) jpeg_read_coefficients JPP((j_decompress_ptr cinfo));
-EXTERN(boolean) jpeg_build_huffman_index JPP((j_decompress_ptr cinfo, huffman_index *index));
+EXTERN(boolean) jpeg_build_huffman_index
+    JPP((j_decompress_ptr cinfo, huffman_index *index));
 EXTERN(void) jpeg_write_coefficients JPP((j_compress_ptr cinfo,
 					  jvirt_barray_ptr * coef_arrays));
 EXTERN(void) jpeg_copy_critical_parameters JPP((j_decompress_ptr srcinfo,
@@ -1099,11 +1114,13 @@ EXTERN(boolean) jpeg_resync_to_restart JPP((j_decompress_ptr cinfo,
 					    int desired));
 
 EXTERN(void) jpeg_configure_huffman_decoder(j_decompress_ptr cinfo,
-                        unsigned int bitstream_offset, short int *dc_info);
+                        huffman_offset_data offset);
 EXTERN(void) jpeg_get_huffman_decoder_configuration(j_decompress_ptr cinfo,
-                        unsigned int *bitstream_offset, short int *dc_info);
+                        huffman_offset_data *offset);
 EXTERN(void) jpeg_create_huffman_index(j_decompress_ptr cinfo,
                         huffman_index *index);
+EXTERN(void) jpeg_configure_huffman_index_scan(j_decompress_ptr cinfo,
+                        huffman_index *index, int scan_no, int offset);
 EXTERN(void) jpeg_destroy_huffman_index(huffman_index *index);
 
 
