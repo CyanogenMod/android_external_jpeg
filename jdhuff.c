@@ -77,7 +77,6 @@ typedef struct {
 
 typedef huff_entropy_decoder * huff_entropy_ptr;
 
-
 /*
  * Initialize for a Huffman-compressed scan.
  */
@@ -497,6 +496,80 @@ process_restart (j_decompress_ptr cinfo)
   return TRUE;
 }
 
+/*
+ * Configure the Huffman decoder to decode the image
+ * starting from (iMCU_row_offset, iMCU_col_offset).
+ */
+
+GLOBAL(void)
+jpeg_configure_huffman_decoder(j_decompress_ptr cinfo,
+              unsigned int bitstream_offset, short int *dc_info)
+{
+  huff_entropy_ptr entropy = (huff_entropy_ptr) cinfo->entropy;
+  int blkn, i;
+
+  BITREAD_STATE_VARS;
+  savable_state state;
+
+  unsigned int byte_offset = bitstream_offset >> LOG_TWO_BIT_BUF_SIZE;
+  unsigned int bit_in_bit_buffer =
+      bitstream_offset & ((1 << LOG_TWO_BIT_BUF_SIZE) - 1);
+
+  cinfo->src->next_input_byte = cinfo->src->start_input_byte + byte_offset;
+  cinfo->src->bytes_in_buffer = cinfo->src->total_byte - byte_offset;
+
+  entropy->bitstate.bits_left = 0;
+
+  /*
+   * When byte_offset points to the middle of a JPEG marker (2-bytes data
+   * starting with 0xFF), we need to shift the byte_offset backward so that
+   * CHECK_BIT_BUFFER can handle it properly.
+   */
+  for (i = 0; i < 5 || *(cinfo->src->next_input_byte - 1) == 0xFF; i++) {
+    if (cinfo->src->next_input_byte <= cinfo->src->start_input_byte)
+      break;
+    cinfo->src->next_input_byte--;
+    cinfo->src->bytes_in_buffer++;
+  }
+
+  BITREAD_LOAD_STATE(cinfo, entropy->bitstate);
+  CHECK_BIT_BUFFER(br_state, BIT_BUF_SIZE, return);
+  while (cinfo->src->total_byte - br_state.bytes_in_buffer < byte_offset) {
+    DROP_BITS(8);
+    CHECK_BIT_BUFFER(br_state, BIT_BUF_SIZE, return);
+  }
+  DROP_BITS(bits_left - bit_in_bit_buffer);
+  BITREAD_SAVE_STATE(cinfo, entropy->bitstate);
+
+  for (i = 0; i < cinfo->comps_in_scan; i++) {
+    entropy->saved.last_dc_val[i] = dc_info[i];
+  }
+}
+
+/*
+ * Save the current Huffman deocde position and the DC coefficients
+ * for each component into bitstream_offset and dc_info[], respectively.
+ */
+
+GLOBAL(void)
+jpeg_get_huffman_decoder_configuration(j_decompress_ptr cinfo,
+              unsigned int *bitstream_offset, short int *dc_info)
+{
+  huff_entropy_ptr entropy = (huff_entropy_ptr) cinfo->entropy;
+
+  BITREAD_STATE_VARS;
+  savable_state state;
+  int i;
+
+  BITREAD_LOAD_STATE(cinfo, entropy->bitstate);
+  ASSIGN_STATE(state, entropy->saved);
+
+  *bitstream_offset = ((cinfo->src->total_byte - cinfo->src->bytes_in_buffer)
+          << LOG_TWO_BIT_BUF_SIZE) + bits_left;
+  for (i = 0; i < cinfo->comps_in_scan; i++) {
+    dc_info[i] =  state.last_dc_val[i];
+  }
+}
 
 /*
  * Decode and return one MCU's worth of Huffman-compressed coefficients.
@@ -532,7 +605,6 @@ decode_mcu (j_decompress_ptr cinfo, JBLOCKROW *MCU_data)
    * This way, we return uniform gray for the remainder of the segment.
    */
   if (! entropy->pub.insufficient_data) {
-
     /* Load up working state */
     BITREAD_LOAD_STATE(cinfo,entropy->bitstate);
     ASSIGN_STATE(state, entropy->saved);
@@ -626,6 +698,87 @@ decode_mcu (j_decompress_ptr cinfo, JBLOCKROW *MCU_data)
   return TRUE;
 }
 
+/*
+ * Decode one MCU's worth of Huffman-compressed coefficients.
+ * The propose of this method is to calculate the
+ * data length of one MCU in Huffman-coded format.
+ * Therefore, all coefficients are discarded.
+ */
+
+METHODDEF(boolean)
+decode_mcu_discard_coef (j_decompress_ptr cinfo)
+{
+  huff_entropy_ptr entropy = (huff_entropy_ptr) cinfo->entropy;
+  int blkn;
+  BITREAD_STATE_VARS;
+  savable_state state;
+
+  /* Process restart marker if needed; may have to suspend */
+  if (cinfo->restart_interval) {
+    if (entropy->restarts_to_go == 0)
+      if (! process_restart(cinfo))
+	return FALSE;
+  }
+
+  if (! entropy->pub.insufficient_data) {
+
+    /* Load up working state */
+    BITREAD_LOAD_STATE(cinfo,entropy->bitstate);
+    ASSIGN_STATE(state, entropy->saved);
+
+    /* Outer loop handles each block in the MCU */
+
+    for (blkn = 0; blkn < cinfo->blocks_in_MCU; blkn++) {
+      d_derived_tbl * dctbl = entropy->dc_cur_tbls[blkn];
+      d_derived_tbl * actbl = entropy->ac_cur_tbls[blkn];
+      register int s, k, r;
+
+      /* Decode a single block's worth of coefficients */
+
+      /* Section F.2.2.1: decode the DC coefficient difference */
+      HUFF_DECODE(s, br_state, dctbl, return FALSE, label1);
+      if (s) {
+	CHECK_BIT_BUFFER(br_state, s, return FALSE);
+	r = GET_BITS(s);
+	s = HUFF_EXTEND(r, s);
+      }
+
+      /* discard all coefficients */
+      if (entropy->dc_needed[blkn]) {
+	/* Convert DC difference to actual value, update last_dc_val */
+	int ci = cinfo->MCU_membership[blkn];
+	s += state.last_dc_val[ci];
+	state.last_dc_val[ci] = s;
+      }
+      for (k = 1; k < DCTSIZE2; k++) {
+        HUFF_DECODE(s, br_state, actbl, return FALSE, label3);
+
+        r = s >> 4;
+        s &= 15;
+
+        if (s) {
+          k += r;
+          CHECK_BIT_BUFFER(br_state, s, return FALSE);
+          DROP_BITS(s);
+        } else {
+          if (r != 15)
+            break;
+          k += 15;
+        }
+      }
+    }
+
+    /* Completed MCU, so update state */
+    BITREAD_SAVE_STATE(cinfo,entropy->bitstate);
+    ASSIGN_STATE(entropy->saved, state);
+  }
+
+  /* Account for restart interval (no-op if not using restarts) */
+  entropy->restarts_to_go--;
+
+  return TRUE;
+}
+
 
 /*
  * Module initialization routine for Huffman entropy decoding.
@@ -648,4 +801,56 @@ jinit_huff_decoder (j_decompress_ptr cinfo)
   for (i = 0; i < NUM_HUFF_TBLS; i++) {
     entropy->dc_derived_tbls[i] = entropy->ac_derived_tbls[i] = NULL;
   }
+}
+
+GLOBAL(void)
+jinit_huff_decoder_no_data (j_decompress_ptr cinfo)
+{
+  huff_entropy_ptr entropy;
+  int i;
+
+  entropy = (huff_entropy_ptr)
+    (*cinfo->mem->alloc_small) ((j_common_ptr) cinfo, JPOOL_IMAGE,
+				SIZEOF(huff_entropy_decoder));
+  cinfo->entropy = (struct jpeg_entropy_decoder *) entropy;
+  entropy->pub.start_pass = start_pass_huff_decoder;
+  entropy->pub.decode_mcu = decode_mcu;
+  entropy->pub.decode_mcu_discard_coef = decode_mcu_discard_coef;
+
+  /* Mark tables unallocated */
+  for (i = 0; i < NUM_HUFF_TBLS; i++) {
+    entropy->dc_derived_tbls[i] = entropy->ac_derived_tbls[i] = NULL;
+  }
+}
+
+/*
+ * Call after jpeg_read_header
+ */
+GLOBAL(void)
+jpeg_create_huffman_index(j_decompress_ptr cinfo, huffman_index *index)
+{
+  int i, s;
+  index->scan_count = 1;
+  index->scan = (huffman_scan_header*)malloc(index->scan_count
+          * sizeof(huffman_scan_header));
+  index->total_iMCU_rows = cinfo->total_iMCU_rows;
+  index->scan[0].offset = (huffman_offset_data**)malloc(cinfo->total_iMCU_rows
+          * sizeof(huffman_offset_data*));
+  index->MCU_sample_size = DEFAULT_MCU_SAMPLE_SIZE;
+
+  index->mem_used = sizeof(huffman_scan_header)
+      + cinfo->total_iMCU_rows*sizeof(huffman_offset_data*);
+}
+
+GLOBAL(void)
+jpeg_destroy_huffman_index(huffman_index *index)
+{
+    int i, j;
+    for (i = 0; i < index->scan_count; i++) {
+        for(j = 0; j < index->total_iMCU_rows; j++) {
+            free(index->scan[i].offset[j]);
+        }
+        free(index->scan[i].offset);
+    }
+    free(index->scan);
 }

@@ -29,6 +29,8 @@ typedef my_input_controller * my_inputctl_ptr;
 
 /* Forward declarations */
 METHODDEF(int) consume_markers JPP((j_decompress_ptr cinfo));
+METHODDEF(int) consume_markers_with_huffman_index JPP((j_decompress_ptr cinfo,
+                    huffman_index *index));
 
 
 /*
@@ -116,7 +118,6 @@ initial_setup (j_decompress_ptr cinfo)
     cinfo->inputctl->has_multiple_scans = FALSE;
 }
 
-
 LOCAL(void)
 per_scan_setup (j_decompress_ptr cinfo)
 /* Do computations that are needed before processing a JPEG scan */
@@ -194,6 +195,13 @@ per_scan_setup (j_decompress_ptr cinfo)
   }
 }
 
+GLOBAL(void)
+jpeg_decompress_per_scan_setup(j_decompress_ptr cinfo)
+{
+    per_scan_setup(cinfo);
+}
+
+
 
 /*
  * Save away a copy of the Q-table referenced by each component present
@@ -258,6 +266,7 @@ start_input_pass (j_decompress_ptr cinfo)
   (*cinfo->entropy->start_pass) (cinfo);
   (*cinfo->coef->start_input_pass) (cinfo);
   cinfo->inputctl->consume_input = cinfo->coef->consume_data;
+  cinfo->inputctl->consume_input_with_huffman_index = cinfo->coef->consume_data_with_huffman_index;
 }
 
 
@@ -271,9 +280,15 @@ METHODDEF(void)
 finish_input_pass (j_decompress_ptr cinfo)
 {
   cinfo->inputctl->consume_input = consume_markers;
+  cinfo->inputctl->consume_input_with_huffman_index = consume_markers_with_huffman_index;
 }
 
 
+METHODDEF(int)
+consume_markers_with_huffman_index (j_decompress_ptr cinfo, huffman_index *index)
+{
+    return consume_markers(cinfo);
+}
 /*
  * Read JPEG markers before, between, or after compressed-data scans.
  * Change state as necessary when a new scan is reached.
@@ -341,6 +356,7 @@ reset_input_controller (j_decompress_ptr cinfo)
   my_inputctl_ptr inputctl = (my_inputctl_ptr) cinfo->inputctl;
 
   inputctl->pub.consume_input = consume_markers;
+  inputctl->pub.consume_input_with_huffman_index = consume_markers_with_huffman_index;
   inputctl->pub.has_multiple_scans = FALSE; /* "unknown" would be better */
   inputctl->pub.eoi_reached = FALSE;
   inputctl->inheaders = TRUE;
@@ -372,6 +388,8 @@ jinit_input_controller (j_decompress_ptr cinfo)
   inputctl->pub.reset_input_controller = reset_input_controller;
   inputctl->pub.start_input_pass = start_input_pass;
   inputctl->pub.finish_input_pass = finish_input_pass;
+
+  inputctl->pub.consume_input_with_huffman_index = consume_markers_with_huffman_index;
   /* Initialize state: can't use reset_input_controller since we don't
    * want to try to reset other modules yet.
    */

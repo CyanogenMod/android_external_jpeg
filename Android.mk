@@ -32,6 +32,9 @@ LOCAL_CFLAGS += -DAVOID_TABLES
 LOCAL_CFLAGS += -O3 -fstrict-aliasing -fprefetch-loop-arrays
 #LOCAL_CFLAGS += -march=armv6j
 
+# enable tile based decode
+LOCAL_CFLAGS += -DANDROID_TILE_BASED_DECODE
+
 LOCAL_MODULE:= libjpeg
 
 include $(BUILD_SHARED_LIBRARY)

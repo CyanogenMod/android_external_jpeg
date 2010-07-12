@@ -145,6 +145,8 @@ struct jpeg_decomp_master {
 /* Input control module */
 struct jpeg_input_controller {
   JMETHOD(int, consume_input, (j_decompress_ptr cinfo));
+  JMETHOD(int, consume_input_with_huffman_index, (j_decompress_ptr cinfo,
+                    huffman_index *index, int scan_count));
   JMETHOD(void, reset_input_controller, (j_decompress_ptr cinfo));
   JMETHOD(void, start_input_pass, (j_decompress_ptr cinfo));
   JMETHOD(void, finish_input_pass, (j_decompress_ptr cinfo));
@@ -166,6 +168,8 @@ struct jpeg_d_main_controller {
 struct jpeg_d_coef_controller {
   JMETHOD(void, start_input_pass, (j_decompress_ptr cinfo));
   JMETHOD(int, consume_data, (j_decompress_ptr cinfo));
+  JMETHOD(int, consume_data_with_huffman_index, (j_decompress_ptr cinfo,
+                    huffman_index* index, int scan_count));
   JMETHOD(void, start_output_pass, (j_decompress_ptr cinfo));
   JMETHOD(int, decompress_data, (j_decompress_ptr cinfo,
 				 JSAMPIMAGE output_buf));
@@ -210,6 +214,7 @@ struct jpeg_entropy_decoder {
   JMETHOD(void, start_pass, (j_decompress_ptr cinfo));
   JMETHOD(boolean, decode_mcu, (j_decompress_ptr cinfo,
 				JBLOCKROW *MCU_data));
+  JMETHOD(boolean, decode_mcu_discard_coef, (j_decompress_ptr cinfo));
 
   /* This is here to share code between baseline and progressive decoders; */
   /* other modules probably should not use it */
@@ -357,6 +362,7 @@ EXTERN(void) jinit_d_post_controller JPP((j_decompress_ptr cinfo,
 EXTERN(void) jinit_input_controller JPP((j_decompress_ptr cinfo));
 EXTERN(void) jinit_marker_reader JPP((j_decompress_ptr cinfo));
 EXTERN(void) jinit_huff_decoder JPP((j_decompress_ptr cinfo));
+EXTERN(void) jinit_huff_decoder_no_data JPP((j_decompress_ptr cinfo));
 EXTERN(void) jinit_phuff_decoder JPP((j_decompress_ptr cinfo));
 EXTERN(void) jinit_inverse_dct JPP((j_decompress_ptr cinfo));
 EXTERN(void) jinit_upsampler JPP((j_decompress_ptr cinfo));
@@ -364,6 +370,7 @@ EXTERN(void) jinit_color_deconverter JPP((j_decompress_ptr cinfo));
 EXTERN(void) jinit_1pass_quantizer JPP((j_decompress_ptr cinfo));
 EXTERN(void) jinit_2pass_quantizer JPP((j_decompress_ptr cinfo));
 EXTERN(void) jinit_merged_upsampler JPP((j_decompress_ptr cinfo));
+EXTERN(void) jpeg_decompress_per_scan_setup (j_decompress_ptr cinfo);
 /* Memory manager initialization */
 EXTERN(void) jinit_memory_mgr JPP((j_common_ptr cinfo));
 

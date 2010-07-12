@@ -263,7 +263,6 @@ consume_data (j_decompress_ptr cinfo)
      * because we requested a pre-zeroed array.
      */
   }
-
   /* Loop to process one whole iMCU row */
   for (yoffset = coef->MCU_vert_offset; yoffset < coef->MCU_rows_per_iMCU_row;
        yoffset++) {
@@ -272,14 +271,14 @@ consume_data (j_decompress_ptr cinfo)
       /* Construct list of pointers to DCT blocks belonging to this MCU */
       blkn = 0;			/* index of current DCT block within MCU */
       for (ci = 0; ci < cinfo->comps_in_scan; ci++) {
-	compptr = cinfo->cur_comp_info[ci];
-	start_col = MCU_col_num * compptr->MCU_width;
-	for (yindex = 0; yindex < compptr->MCU_height; yindex++) {
-	  buffer_ptr = buffer[ci][yindex+yoffset] + start_col;
-	  for (xindex = 0; xindex < compptr->MCU_width; xindex++) {
-	    coef->MCU_buffer[blkn++] = buffer_ptr++;
-	  }
-	}
+        compptr = cinfo->cur_comp_info[ci];
+        start_col = MCU_col_num * compptr->MCU_width;
+        for (yindex = 0; yindex < compptr->MCU_height; yindex++) {
+          buffer_ptr = buffer[ci][yindex+yoffset] + start_col;
+          for (xindex = 0; xindex < compptr->MCU_width; xindex++) {
+            coef->MCU_buffer[blkn++] = buffer_ptr++;
+          }
+        }
       }
       /* Try to fetch the MCU. */
       if (! (*cinfo->entropy->decode_mcu) (cinfo, coef->MCU_buffer)) {
@@ -287,6 +286,68 @@ consume_data (j_decompress_ptr cinfo)
 	coef->MCU_vert_offset = yoffset;
 	coef->MCU_ctr = MCU_col_num;
 	return JPEG_SUSPENDED;
+      }
+    }
+    /* Completed an MCU row, but perhaps not an iMCU row */
+    coef->MCU_ctr = 0;
+  }
+  /* Completed the iMCU row, advance counters for next one */
+  if (++(cinfo->input_iMCU_row) < cinfo->total_iMCU_rows) {
+    start_iMCU_row(cinfo);
+    return JPEG_ROW_COMPLETED;
+  }
+  /* Completed the scan */
+  (*cinfo->inputctl->finish_input_pass) (cinfo);
+  return JPEG_SCAN_COMPLETED;
+}
+
+#define  rounded_division(A,B) ((A+B-1)/(B))
+/*
+ * Same as consume_data, expect for saving the Huffman decode information
+ * - bitstream offset and DC coefficient to index.
+ */
+
+METHODDEF(int)
+consume_data_with_huffman_index (j_decompress_ptr cinfo, huffman_index *index,
+        int current_scan)
+{
+  my_coef_ptr coef = (my_coef_ptr) cinfo->coef;
+  JDIMENSION MCU_col_num;	/* index of current MCU within row */
+  int ci, xindex, yindex, yoffset;
+  JDIMENSION start_col;
+  JBLOCKROW buffer_ptr;
+
+  huffman_scan_header current_header = index->scan[current_scan];
+  current_header.MCU_rows_per_iMCU_row = coef->MCU_rows_per_iMCU_row;
+  current_header.MCUs_per_row = cinfo->MCUs_per_row;
+  current_header.comps_in_scan = cinfo->comps_in_scan;
+
+  size_t allocate_size = coef->MCU_rows_per_iMCU_row
+      * rounded_division(cinfo->MCUs_per_row, index->MCU_sample_size)
+      * sizeof(huffman_offset_data);
+  current_header.offset[cinfo->input_iMCU_row] = (huffman_offset_data*)malloc(allocate_size);
+  index->mem_used += allocate_size;
+
+  huffman_offset_data *offset_data = current_header.offset[cinfo->input_iMCU_row];
+
+  /* Loop to process one whole iMCU row */
+  for (yoffset = coef->MCU_vert_offset; yoffset < coef->MCU_rows_per_iMCU_row;
+       yoffset++) {
+    for (MCU_col_num = coef->MCU_ctr; MCU_col_num < cinfo->MCUs_per_row;
+	 MCU_col_num++) {
+      // Record huffman bit offset
+      if (MCU_col_num % index->MCU_sample_size == 0) {
+        jpeg_get_huffman_decoder_configuration(cinfo,
+                &offset_data->bitstream_offset, offset_data->prev_dc);
+        ++offset_data;
+      }
+
+      /* Try to fetch the MCU. */
+      if (! (*cinfo->entropy->decode_mcu_discard_coef) (cinfo)) {
+        /* Suspension forced; update state counters and exit */
+        coef->MCU_vert_offset = yoffset;
+        coef->MCU_ctr = MCU_col_num;
+        return JPEG_SUSPENDED;
       }
     }
     /* Completed an MCU row, but perhaps not an iMCU row */
@@ -712,6 +773,7 @@ jinit_d_coef_controller (j_decompress_ptr cinfo, boolean need_full_buffer)
 				(long) compptr->v_samp_factor),
 	 (JDIMENSION) access_rows);
     }
+    coef->pub.consume_data_with_huffman_index = consume_data_with_huffman_index;
     coef->pub.consume_data = consume_data;
     coef->pub.decompress_data = decompress_data;
     coef->pub.coef_arrays = coef->whole_image; /* link to virtual arrays */
@@ -729,6 +791,7 @@ jinit_d_coef_controller (j_decompress_ptr cinfo, boolean need_full_buffer)
     for (i = 0; i < D_MAX_BLOCKS_IN_MCU; i++) {
       coef->MCU_buffer[i] = buffer + i;
     }
+    coef->pub.consume_data_with_huffman_index = consume_data_with_huffman_index;
     coef->pub.consume_data = dummy_consume_data;
     coef->pub.decompress_data = decompress_onepass;
     coef->pub.coef_arrays = NULL; /* flag for no virtual arrays */
