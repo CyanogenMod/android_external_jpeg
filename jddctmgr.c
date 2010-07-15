@@ -2,6 +2,7 @@
  * jddctmgr.c
  *
  * Copyright (C) 1994-1996, Thomas G. Lane.
+ * Copyright (c) 2010, Code Aurora Forum. All rights reserved.
  * This file is part of the Independent JPEG Group's software.
  * For conditions of distribution and use, see the accompanying README file.
  *
@@ -123,8 +124,14 @@ start_pass (j_decompress_ptr cinfo)
 #endif
 #ifdef DCT_IFAST_SUPPORTED
       case JDCT_IFAST:
+#ifdef ANDROID_JPEG_USE_VENUM
+        /* Use VeNum implementation of jpeg_idct_islow even if fast DCT option is selected */
+	method_ptr = jpeg_idct_islow;
+	method = JDCT_ISLOW;
+#else
 	method_ptr = jpeg_idct_ifast;
 	method = JDCT_IFAST;
+#endif /* ANDROID_JPEG_USE_VENUM */
 	break;
 #endif
 #ifdef DCT_FLOAT_SUPPORTED
