@@ -12,7 +12,17 @@ LOCAL_SRC_FILES := \
 	jdpostct.c jdsample.c jdtrans.c jerror.c jfdctflt.c jfdctfst.c \
 	jfdctint.c jidctflt.c jidctred.c jquant1.c \
 	jquant2.c jutils.c jmemmgr.c \
-	jmem-android.c
+
+# use ashmem as libjpeg decoder's backing store
+LOCAL_CFLAGS += -DUSE_ANDROID_ASHMEM
+LOCAL_SRC_FILES += \
+	jmem-ashmem.c
+
+# the original android memory manager.
+# use sdcard as libjpeg decoder's backing store
+#LOCAL_SRC_FILES += \
+#	jmem-android.c
+
 
 # the assembler is only for the ARM version, don't break the Linux sim
 ifneq ($(TARGET_ARCH),arm)
@@ -36,5 +46,8 @@ LOCAL_CFLAGS += -O3 -fstrict-aliasing -fprefetch-loop-arrays
 LOCAL_CFLAGS += -DANDROID_TILE_BASED_DECODE
 
 LOCAL_MODULE:= libjpeg
+
+LOCAL_SHARED_LIBRARIES := \
+	libcutils
 
 include $(BUILD_SHARED_LIBRARY)
