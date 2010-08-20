@@ -272,10 +272,9 @@ consume_data (j_decompress_ptr cinfo)
   unsigned int MCUs_per_row = cinfo->MCUs_per_row;
 #ifdef ANDROID_TILE_BASED_DECODE
   if (cinfo->tile_decode) {
-    MCUs_per_row =
+    MCUs_per_row = jmin(MCUs_per_row,
         (cinfo->coef->column_right_boundary - cinfo->coef->column_left_boundary)
-        * cinfo->entropy->index->MCU_sample_size * cinfo->max_h_samp_factor;
-    MCUs_per_row = jmin(MCUs_per_row, cinfo->MCUs_per_row);
+        * cinfo->entropy->index->MCU_sample_size * cinfo->max_h_samp_factor);
   }
 #endif
 

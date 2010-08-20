@@ -1043,9 +1043,7 @@ EXTERN(JDIMENSION) jpeg_read_scanlines_from JPP((j_decompress_ptr cinfo,
 					    JDIMENSION max_lines));
 EXTERN(JDIMENSION) jpeg_read_tile_scanline JPP((j_decompress_ptr cinfo,
                         huffman_index *index,
-                        JSAMPARRAY scanlines,
-		                int start_x, int start_y,
-                        int width, int height));
+                        JSAMPARRAY scanlines));
 EXTERN(void) jpeg_init_read_tile_scanline JPP((j_decompress_ptr cinfo,
                         huffman_index *index,
 		                int *start_x, int *start_y,

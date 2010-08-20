@@ -519,6 +519,7 @@ jpeg_configure_huffman_decoder(j_decompress_ptr cinfo,
   int blkn, i;
 
   cinfo->restart_interval = 0;
+  cinfo->unread_marker = 0;
 
   unsigned int byte_offset = bitstream_offset >> LOG_TWO_BIT_BUF_SIZE;
   unsigned int bit_in_bit_buffer =

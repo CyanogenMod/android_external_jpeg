@@ -204,7 +204,8 @@ jpeg_read_scanlines (j_decompress_ptr cinfo, JSAMPARRAY scanlines,
  * Initialize the jpeg decoder to decompressing a rectangle with size of (width, height)
  * and its upper-left corner located at (start_x, start_y).
  * Align start_x and start_y to multiplies of iMCU width and height, respectively.
- * Also, the new reader position will be returned in (start_x, start_y).
+ * Also, the new reader position and sampled image size will be returned in
+ * (start_x, start_y) and (width, height), respectively.
  */
 
 GLOBAL(void)
@@ -217,15 +218,15 @@ jpeg_init_read_tile_scanline(j_decompress_ptr cinfo, huffman_index *index,
   int row_offset = *start_y / lines_per_iMCU_row;
   int col_left_boundary = ((*start_x / lines_per_iMCU_col)
             / index->MCU_sample_size) * index->MCU_sample_size;
-  int col_right_boundary = (*start_x + *width + lines_per_iMCU_col - 1)
-            / lines_per_iMCU_col;
+  int col_right_boundary =
+                  jdiv_round_up(*start_x + *width, lines_per_iMCU_col);
 
   *height = (*start_y - row_offset * lines_per_iMCU_row) + *height;
   *start_x = col_left_boundary * lines_per_iMCU_col;
   *start_y = row_offset * lines_per_iMCU_row;
-  cinfo->image_width = jmin(cinfo->original_image_width -
-          col_left_boundary * lines_per_iMCU_col,
-          (col_right_boundary - col_left_boundary) * lines_per_iMCU_col);
+  cinfo->image_width = jmin(cinfo->original_image_width,
+          col_right_boundary * lines_per_iMCU_col) -
+          col_left_boundary * lines_per_iMCU_col;
   cinfo->input_iMCU_row = row_offset;
   cinfo->output_iMCU_row = row_offset;
 
@@ -239,10 +240,11 @@ jpeg_init_read_tile_scanline(j_decompress_ptr cinfo, huffman_index *index,
   else
     jpeg_decompress_per_scan_setup(cinfo);
 
-  int sampleSize = cinfo->image_width / cinfo->output_width;
-  *height /= sampleSize;
+  int sample_size = DCTSIZE / cinfo->min_DCT_scaled_size;
+
+  *height = jdiv_round_up(*height, sample_size);
   *width = cinfo->output_width;
-  cinfo->output_scanline = lines_per_iMCU_row * row_offset / sampleSize;
+  cinfo->output_scanline = lines_per_iMCU_row * row_offset / sample_size;
   cinfo->inputctl->consume_input = cinfo->coef->consume_data;
   cinfo->inputctl->consume_input_build_huffman_index =
       cinfo->coef->consume_data_build_huffman_index;
@@ -265,24 +267,23 @@ jpeg_init_read_tile_scanline(j_decompress_ptr cinfo, huffman_index *index,
 
 GLOBAL(JDIMENSION)
 jpeg_read_tile_scanline (j_decompress_ptr cinfo, huffman_index *index,
-        JSAMPARRAY scanlines, int start_x, int start_y, int width, int height)
+        JSAMPARRAY scanlines)
 {
   // Calculates the boundary of iMCU
   int lines_per_iMCU_row = cinfo->max_v_samp_factor * DCTSIZE;
   int lines_per_iMCU_col = cinfo->max_h_samp_factor * DCTSIZE;
-  int col_left_boundary = ((start_x / lines_per_iMCU_col)
-          / index->MCU_sample_size) * index->MCU_sample_size;
-  int sampleSize = cinfo->image_width / cinfo->output_width;
-  int row_ctr = 0;
+  int sample_size = DCTSIZE / cinfo->min_DCT_scaled_size;
+  JDIMENSION row_ctr = 0;
 
   if (cinfo->progressive_mode) {
     (*cinfo->main->process_data) (cinfo, scanlines, &row_ctr, 1);
   } else {
-    if (cinfo->output_scanline % (lines_per_iMCU_row / sampleSize) == 0) {
+    if (cinfo->output_scanline % (lines_per_iMCU_row / sample_size) == 0) {
       // Set the read head to the next iMCU row
       int iMCU_row_offset = cinfo->output_scanline /
-            (lines_per_iMCU_row / sampleSize);
-      int offset_data_col_position = col_left_boundary / index->MCU_sample_size;
+            (lines_per_iMCU_row / sample_size);
+      int offset_data_col_position = cinfo->coef->MCU_column_left_boundary /
+            index->MCU_sample_size;
       huffman_offset_data offset_data =
           index->scan[0].offset[iMCU_row_offset][offset_data_col_position];
       (*cinfo->entropy->configure_huffman_decoder) (cinfo, offset_data);
