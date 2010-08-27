@@ -13,6 +13,11 @@
 #include "jinclude.h"
 #include "jpeglib.h"
 
+#ifdef ANDROID_JPEG_USE_VENUM
+/* Disable VeNum color conversion since it does not work well with
+ * other android libraries due to different conversion matrix used */
+#undef ANDROID_JPEG_USE_VENUM
+#endif
 
 /* Private subobject */
 
