@@ -177,10 +177,20 @@ struct jpeg_d_coef_controller {
 				 JSAMPIMAGE output_buf));
   /* Pointer to array of coefficient virtual arrays, or NULL if none */
   jvirt_barray_ptr *coef_arrays;
+
+  /* column number of the first and last tile, respectively */
   int column_left_boundary;
   int column_right_boundary;
+
+  /* column number of the first and last MCU, respectively */
   int MCU_column_left_boundary;
   int MCU_column_right_boundary;
+
+  /* the number of MCU columns to skip from the indexed MCU, iM,
+   * to the requested MCU boundary, rM, where iM is the MCU that we sample
+   * into our index and is the nearest one to the left of rM.
+   */
+  int MCU_columns_to_skip;
 };
 
 /* Decompression postprocessing (color quantization buffer control) */

@@ -221,6 +221,9 @@ jpeg_init_read_tile_scanline(j_decompress_ptr cinfo, huffman_index *index,
   int col_right_boundary =
                   jdiv_round_up(*start_x + *width, lines_per_iMCU_col);
 
+  cinfo->coef->MCU_columns_to_skip =
+      *start_x / lines_per_iMCU_col - col_left_boundary;
+
   *height = (*start_y - row_offset * lines_per_iMCU_row) + *height;
   *start_x = col_left_boundary * lines_per_iMCU_col;
   *start_y = row_offset * lines_per_iMCU_row;

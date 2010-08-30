@@ -170,13 +170,18 @@ decompress_onepass (j_decompress_ptr cinfo, JSAMPIMAGE output_buf)
     for (MCU_col_num = coef->MCU_ctr; MCU_col_num <= last_MCU_col;
 	 MCU_col_num++) {
       /* Try to fetch an MCU.  Entropy decoder expects buffer to be zeroed. */
-      jzero_far((void FAR *) coef->MCU_buffer[0],
+      if (MCU_col_num < coef->pub.MCU_columns_to_skip) {
+        (*cinfo->entropy->decode_mcu_discard_coef) (cinfo);
+        continue;
+      } else {
+        jzero_far((void FAR *) coef->MCU_buffer[0],
 		(size_t) (cinfo->blocks_in_MCU * SIZEOF(JBLOCK)));
-      if (! (*cinfo->entropy->decode_mcu) (cinfo, coef->MCU_buffer)) {
-	/* Suspension forced; update state counters and exit */
-	coef->MCU_vert_offset = yoffset;
-	coef->MCU_ctr = MCU_col_num;
-	return JPEG_SUSPENDED;
+        if (! (*cinfo->entropy->decode_mcu) (cinfo, coef->MCU_buffer)) {
+	  /* Suspension forced; update state counters and exit */
+	  coef->MCU_vert_offset = yoffset;
+	  coef->MCU_ctr = MCU_col_num;
+	  return JPEG_SUSPENDED;
+        }
       }
       /* Determine where data should go in output_buf and do the IDCT thing.
        * We skip dummy blocks at the right and bottom edges (but blkn gets
@@ -203,8 +208,8 @@ decompress_onepass (j_decompress_ptr cinfo, JSAMPIMAGE output_buf)
 	    output_col = start_col;
 	    for (xindex = 0; xindex < useful_width; xindex++) {
 	      (*inverse_DCT) (cinfo, compptr,
-			      (JCOEFPTR) coef->MCU_buffer[blkn+xindex],
-			      output_ptr, output_col);
+		        (JCOEFPTR) coef->MCU_buffer[blkn+xindex],
+		        output_ptr, output_col);
 	      output_col += compptr->DCT_scaled_size;
 	    }
 	  }
@@ -575,11 +580,25 @@ decompress_data (j_decompress_ptr cinfo, JSAMPIMAGE output_buf)
     }
     inverse_DCT = cinfo->idct->inverse_DCT[ci];
     output_ptr = output_buf[ci];
+    int width_in_blocks = compptr->width_in_blocks;
+    int start_block = 0;
+#if ANDROID_TILE_BASED_DECODE
+    if (cinfo->tile_decode) {
+      width_in_blocks = jmin(width_in_blocks,
+        (cinfo->coef->MCU_column_right_boundary -
+         cinfo->coef->MCU_column_left_boundary) *
+         cinfo->max_h_samp_factor /
+         compptr->h_samp_factor);
+      start_block = coef->pub.MCU_columns_to_skip *
+        cinfo->max_h_samp_factor / compptr->h_samp_factor;
+    }
+#endif
     /* Loop over all DCT blocks to be processed. */
     for (block_row = 0; block_row < block_rows; block_row++) {
       buffer_ptr = buffer[block_row];
-      output_col = 0;
-      for (block_num = 0; block_num < compptr->width_in_blocks; block_num++) {
+      output_col = start_block * compptr->DCT_scaled_size;
+      buffer_ptr += start_block;
+      for (block_num = start_block; block_num < width_in_blocks; block_num++) {
 	(*inverse_DCT) (cinfo, compptr, (JCOEFPTR) buffer_ptr,
 			output_ptr, output_col);
 	buffer_ptr++;
@@ -906,6 +925,7 @@ jinit_d_coef_controller (j_decompress_ptr cinfo, boolean need_full_buffer)
   coef->pub.start_output_pass = start_output_pass;
   coef->pub.column_left_boundary = 0;
   coef->pub.column_right_boundary = 0;
+  coef->pub.MCU_columns_to_skip = 0;
 #ifdef BLOCK_SMOOTHING_SUPPORTED
   coef->coef_bits_latch = NULL;
 #endif
