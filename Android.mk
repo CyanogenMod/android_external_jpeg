@@ -36,8 +36,13 @@ LOCAL_SRC_FILES += jidctint.c jidctfst.c jidctred.c
 else
 ifeq ($(ANDROID_JPEG_USE_VENUM),true)
 LOCAL_SRC_FILES += jidctvenum.c
+LOCAL_SRC_FILES += asm/armv7/jdcolor-armv7.S
 LOCAL_SRC_FILES += asm/armv7/jdidct-armv7.S
 LOCAL_CFLAGS    += -DANDROID_JPEG_USE_VENUM
+# Disable VeNum YCC to RGB565 color conversion by default because it does not
+# work well with other android libraries (i.e. libFFTEm) due to different color
+# conversion matrix used.
+LOCAL_CFLAGS    += -DANDROID_JPEG_DISABLE_VENUM_YCC_RGB_565
 else # ANDROID_JPEG_USE_VENUM, false
 LOCAL_SRC_FILES += jidctint.c jidctfst.S jidctred.c
 endif # ANDROID_JPEG_USE_VENUM
