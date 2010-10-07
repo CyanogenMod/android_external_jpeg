@@ -37,8 +37,8 @@
 * - yyvup2rgb565_venum
 * - yvup2bgr888_venum
 * - yyvup2bgr888_venum
-* - yvup2bgra8888_venum
-* - yyvup2bgra8888_venum
+* - yvup2abgr8888_venum
+* - yyvup2abgr8888_venum
 *
 *--------------------------------------------------------------------------
 */
@@ -58,33 +58,30 @@ p_rgb     .req r3
 p_bgr     .req r3
 length    .req r12
 
-#if !defined(ANDROID_JPEG_DISABLE_VENUM_YCC_RGB_565)
     .global yvup2rgb565_venum
     .global yyvup2rgb565_venum
-#endif
     .global yvup2bgr888_venum
     .global yyvup2bgr888_venum
     .global yvup2abgr8888_venum
     .global yyvup2abgr8888_venum
 
 @ coefficients in color conversion matrix multiplication
-.equ COEFF_Y,          298             @ contribution of Y
-.equ COEFF_V_RED,      409             @ contribution of V for red
-.equ COEFF_U_GREEN,   -100             @ contribution of U for green
-.equ COEFF_V_GREEN,   -208             @ contribution of V for green
-.equ COEFF_U_BLUE,     516             @ contribution of U for blue
+.equ COEFF_Y,          256             @ contribution of Y
+.equ COEFF_V_RED,      359             @ contribution of V for red
+.equ COEFF_U_GREEN,    -88             @ contribution of U for green
+.equ COEFF_V_GREEN,   -183             @ contribution of V for green
+.equ COEFF_U_BLUE,     454             @ contribution of U for blue
 
 @ Clamping constants 0x0 and 0xFF
 .equ COEFF_0,          0
 .equ COEFF_255,        255
 
 @ Bias coefficients for red, green and blue
-.equ COEFF_BIAS_R,   -56992            @ Red   bias = -298*16 - 409*128 + 128
-.equ COEFF_BIAS_G,    34784            @ Green bias = -298*16 + 308*128 + 128
-.equ COEFF_BIAS_B,   -70688            @ Blue  bias = -298*16 - 516*128 + 128
+.equ COEFF_BIAS_R,   -45824            @ Red   bias =     -359*128 + 128
+.equ COEFF_BIAS_G,    34816            @ Green bias = (88+183)*128 + 128
+.equ COEFF_BIAS_B,   -57984            @ Blue  bias =     -454*128 + 128
 
 
-#if !defined(ANDROID_JPEG_DISABLE_VENUM_YCC_RGB_565)
 /*--------------------------------------------------------------------------
 * FUNCTION     : yvup2rgb565_venum
 *--------------------------------------------------------------------------
@@ -140,8 +137,8 @@ yvup2rgb565_venum:
 
     ADR   R12, constants
 
-    VLD1.S16  {D6, D7}, [R12]!         @ D6, D7: 409 | -100 | -208 | 516 | 298 | 0 | 255 | 0
-    VLD1.S32  {D30, D31}, [R12]        @ Q15   :  -56992    |    34784   |  -70688 |     X
+    VLD1.S16  {D6, D7}, [R12]!         @ D6, D7: 359 |  -88 | -183 | 454 | 256 | 0 | 255 | 0
+    VLD1.S32  {D30, D31}, [R12]        @ Q15   :  -45824    |    34816   |  -57984 |     X
 
     /*-------------------------------------------------------------------------
      *  Load the 5th parameter via stack
@@ -164,8 +161,8 @@ yvup2rgb565_venum:
     /*-------------------------------------------------------------------------
      *  Read bias
      * ------------------------------------------------------------------------ */
-    VDUP.S32  Q0,   D30[0]             @ Q0:  -56992 | -56992 | -56992 | -56992
-    VDUP.S32  Q1,   D30[1]             @ Q1:   34784 |  34784 |  34784 |  34784
+    VDUP.S32  Q0,   D30[0]             @ Q0:  -45824 | -45824 | -45824 | -45824
+    VDUP.S32  Q1,   D30[1]             @ Q1:   34816 |  34816 |  34816 |  34816
     VDUP.S32  Q2,   D31[0]             @ Q2:  -70688 | -70688 | -70688 | -70688
 
 
@@ -190,24 +187,24 @@ loop_yvup2rgb565:
      *  D20, D21: V0 V1 V2 V3 V4 V5 V6 V7
      *  D22, D23: U0 U1 U2 U3 U4 U5 U6 U7
      * ------------------------------------------------------------------------ */
-    VMOVL.U16.U8 Q9,  D12
-    VMOVL.U16.U8 Q10, D14
-    VMOVL.U16.U8 Q11, D15
+    VMOVL.U8 Q9,  D12
+    VMOVL.U8 Q10, D14
+    VMOVL.U8 Q11, D15
 
     /*-------------------------------------------------------------------------
      *  Multiply contribution from chrominance, results are in 32-bit
      * ------------------------------------------------------------------------ */
-    VMULL.S16  Q12, D20, D6[0]         @ Q12:  409*(V0,V1,V2,V3)     Red
-    VMULL.S16  Q13, D22, D6[1]         @ Q13: -100*(U0,U1,U2,U3)     Green
-    VMLAL.S16  Q13, D20, D6[2]         @ Q13: -100*(U0,U1,U2,U3) - 208*(V0,V1,V2,V3)
-    VMULL.S16  Q14, D22, D6[3]         @ Q14:  516*(U0,U1,U2,U3)     Blue
+    VMULL.S16  Q12, D20, D6[0]         @ Q12:  359*(V0,V1,V2,V3)     Red
+    VMULL.S16  Q13, D22, D6[1]         @ Q13:  -88*(U0,U1,U2,U3)     Green
+    VMLAL.S16  Q13, D20, D6[2]         @ Q13:  -88*(U0,U1,U2,U3) - 183*(V0,V1,V2,V3)
+    VMULL.S16  Q14, D22, D6[3]         @ Q14:  454*(U0,U1,U2,U3)     Blue
 
     /*-------------------------------------------------------------------------
      *  Add bias
      * ------------------------------------------------------------------------ */
-    VADD.S32  Q12, Q0                  @ Q12 add Red   bias -56992
-    VADD.S32  Q13, Q1                  @ Q13 add Green bias  34784
-    VADD.S32  Q14, Q2                  @ Q14 add Blue  bias -70688
+    VADD.S32  Q12, Q0                  @ Q12 add Red   bias -45824
+    VADD.S32  Q13, Q1                  @ Q13 add Green bias  34816
+    VADD.S32  Q14, Q2                  @ Q14 add Blue  bias -57984
 
     /*-------------------------------------------------------------------------
      *  Calculate Red, Green, Blue
@@ -230,17 +227,17 @@ loop_yvup2rgb565:
     /*-------------------------------------------------------------------------
      *  Multiply contribution from chrominance, results are in 32-bit
      * ------------------------------------------------------------------------ */
-    VMULL.S16  Q12, D21, D6[0]         @ Q12:  409*(V0,V1,V2,V3)     Red
-    VMULL.S16  Q13, D23, D6[1]         @ Q13: -100*(U0,U1,U2,U3)     Green
-    VMLAL.S16  Q13, D21, D6[2]         @ Q13: -100*(U0,U1,U2,U3) - 208*(V0,V1,V2,V3)
-    VMULL.S16  Q14, D23, D6[3]         @ Q14:  516*(U0,U1,U2,U3)     Blue
+    VMULL.S16  Q12, D21, D6[0]         @ Q12:  359*(V0,V1,V2,V3)     Red
+    VMULL.S16  Q13, D23, D6[1]         @ Q13:  -88*(U0,U1,U2,U3)     Green
+    VMLAL.S16  Q13, D21, D6[2]         @ Q13:  -88*(U0,U1,U2,U3) - 183*(V0,V1,V2,V3)
+    VMULL.S16  Q14, D23, D6[3]         @ Q14:  454*(U0,U1,U2,U3)     Blue
 
     /*-------------------------------------------------------------------------
      *  Add bias
      * ------------------------------------------------------------------------ */
-    VADD.S32  Q12, Q0                  @ Q12 add Red   bias -56992
-    VADD.S32  Q13, Q1                  @ Q13 add Green bias  34784
-    VADD.S32  Q14, Q2                  @ Q14 add Blue  bias -70688
+    VADD.S32  Q12, Q0                  @ Q12 add Red   bias -45824
+    VADD.S32  Q13, Q1                  @ Q13 add Green bias  34816
+    VADD.S32  Q14, Q2                  @ Q14 add Blue  bias -57984
 
     /*-------------------------------------------------------------------------
      *  Calculate Red, Green, Blue
@@ -388,10 +385,10 @@ yyvup2rgb565_venum:
 
     ADR   R12, constants
 
-    VLD1.S16  {D6, D7}, [R12]!         @ D6, D7: 409 | -100 | -208 | 516 | 298 | 0 | 255 | 0
-    VLD1.S32  {D30, D31}, [R12]        @ Q15   :  -56992    |    34784   |  -70688 |     X
+    VLD1.S16  {D6, D7}, [R12]!         @ D6, D7: 359 |  -88 | -183 | 454 | 256 | 0 | 255 | 0
+    VLD1.S32  {D30, D31}, [R12]        @ Q15   :  -45824    |    34816   |  -57984 |     X
 
-     /*-------------------------------------------------------------------------
+    /*-------------------------------------------------------------------------
      *  Load the 5th parameter via stack
      *  R0 ~ R3 are used to pass the first 4 parameters, the 5th and above
      *  parameters are passed via stack
@@ -412,8 +409,8 @@ yyvup2rgb565_venum:
     /*-------------------------------------------------------------------------
      *  Read bias
      * ------------------------------------------------------------------------ */
-    VDUP.S32  Q0,   D30[0]             @ Q0:  -56992 | -56992 | -56992 | -56992
-    VDUP.S32  Q1,   D30[1]             @ Q1:   34784 |  34784 |  34784 |  34784
+    VDUP.S32  Q0,   D30[0]             @ Q0:  -45824 | -45824 | -45824 | -45824
+    VDUP.S32  Q1,   D30[1]             @ Q1:   34816 |  34816 |  34816 |  34816
     VDUP.S32  Q2,   D31[0]             @ Q2:  -70688 | -70688 | -70688 | -70688
 
 
@@ -439,25 +436,25 @@ loop_yyvup2rgb565:
      *  D28, D29: V0 V1 V2 V3 V4 V5  V6  V7
      *  D30, D31: U0 U1 U2 U3 U4 U5  U6  U7
      * ------------------------------------------------------------------------ */
-    VMOVL.U16.U8 Q12, D12
-    VMOVL.U16.U8 Q13, D13
-    VMOVL.U16.U8 Q14, D14
-    VMOVL.U16.U8 Q15, D15
+    VMOVL.U8 Q12, D12
+    VMOVL.U8 Q13, D13
+    VMOVL.U8 Q14, D14
+    VMOVL.U8 Q15, D15
 
     /*-------------------------------------------------------------------------
      *  Multiply contribution from chrominance, results are in 32-bit
      * ------------------------------------------------------------------------ */
-    VMULL.S16  Q6, D28, D6[0]          @ Q6:  409*(V0,V1,V2,V3)     Red
-    VMULL.S16  Q7, D30, D6[1]          @ Q7: -100*(U0,U1,U2,U3)     Green
-    VMLAL.S16  Q7, D28, D6[2]          @ q7: -100*(U0,U1,U2,U3) - 208*(V0,V1,V2,V3)
-    VMULL.S16  Q8, D30, D6[3]          @ q8:  516*(U0,U1,U2,U3)     Blue
+    VMULL.S16  Q6, D28, D6[0]          @ Q6:  359*(V0,V1,V2,V3)     Red
+    VMULL.S16  Q7, D30, D6[1]          @ Q7:  -88*(U0,U1,U2,U3)     Green
+    VMLAL.S16  Q7, D28, D6[2]          @ q7:  -88*(U0,U1,U2,U3) - 183*(V0,V1,V2,V3)
+    VMULL.S16  Q8, D30, D6[3]          @ q8:  454*(U0,U1,U2,U3)     Blue
 
     /*-------------------------------------------------------------------------
      *  Add bias
      * ------------------------------------------------------------------------ */
-    VADD.S32  Q6, Q0                   @ Q6 add Red   bias -56992
-    VADD.S32  Q7, Q1                   @ Q7 add Green bias  34784
-    VADD.S32  Q8, Q2                   @ Q8 add Blue  bias -70688
+    VADD.S32  Q6, Q0                   @ Q6 add Red   bias -45824
+    VADD.S32  Q7, Q1                   @ Q7 add Green bias  34816
+    VADD.S32  Q8, Q2                   @ Q8 add Blue  bias -57984
 
     /*-------------------------------------------------------------------------
      *  Calculate Red, Green, Blue
@@ -508,9 +505,10 @@ loop_yyvup2rgb565:
      *  D22:  3 bits of Green + 5 bits of Blue
      *  D23:  5 bits of Red   + 3 bits of Green
      * ------------------------------------------------------------------------ */
-    VSRI.8   D23, D22, #5	           @ right shift G by 5 and insert to R
+    VSRI.8   D23, D22, #5              @ right shift G by 5 and insert to R
     VSHL.U8  D22, D22, #3              @ left shift G by 3
     VSRI.8   D22, D21, #3              @ right shift B by 3 and insert to G
+
     SUBS length, length, #8            @ check if the length is less than 8
 
     BMI  trailing_yyvup2rgb565         @ jump to trailing processing if remaining length is less than 8
@@ -528,17 +526,17 @@ loop_yyvup2rgb565:
     /*-------------------------------------------------------------------------
      *  Multiply contribution from chrominance, results are in 32-bit
      * ------------------------------------------------------------------------ */
-    VMULL.S16  Q6, D29, D6[0]          @ Q6: 409*(V4,V5,V6,V7)       Red
-    VMULL.S16  Q7, D31, D6[1]          @ Q7: -100*(U4,U5,U6,U7)      Green
-    VMLAL.S16  Q7, D29, D6[2]          @ Q7: -100*(U4,U5,U6,U7) - 208*(V4,V5,V6,V7)
-    VMULL.S16  Q8, D31, D6[3]          @ Q8: 516*(U4,U5,U6,U7)       Blue
+    VMULL.S16  Q6, D29, D6[0]          @ Q6: 359*(V4,V5,V6,V7)       Red
+    VMULL.S16  Q7, D31, D6[1]          @ Q7: -88*(U4,U5,U6,U7)      Green
+    VMLAL.S16  Q7, D29, D6[2]          @ Q7: -88*(U4,U5,U6,U7) - 183*(V4,V5,V6,V7)
+    VMULL.S16  Q8, D31, D6[3]          @ Q8: 454*(U4,U5,U6,U7)       Blue
 
     /*-------------------------------------------------------------------------
      *  Add bias
      * ------------------------------------------------------------------------ */
-    VADD.S32  Q6, Q0                   @ Q6 add Red   bias -56992
-    VADD.S32  Q7, Q1                   @ Q7 add Green bias  34784
-    VADD.S32  Q8, Q2                   @ Q8 add Blue  bias -70688
+    VADD.S32  Q6, Q0                   @ Q6 add Red   bias -45824
+    VADD.S32  Q7, Q1                   @ Q7 add Green bias  34816
+    VADD.S32  Q8, Q2                   @ Q8 add Blue  bias -57984
 
     /*-------------------------------------------------------------------------
      *  Calculate Red, Green, Blue
@@ -569,6 +567,7 @@ loop_yyvup2rgb565:
     VSHRN.S32   D20, Q8,  #8           @ D20: B8 B10 B12 B14 in 16-bit Q0 format
     VSHRN.S32   D21, Q11, #8           @ D21: B9 B11 B13 B15 in 16-bit Q0 format
     VZIP.16     D20, D21               @ Q10: B8 B9 B10 B11 B12 B13 B14 B15
+
     /*-------------------------------------------------------------------------
      *  Clamp the value to be within [0~255]
      * ------------------------------------------------------------------------ */
@@ -588,7 +587,7 @@ loop_yyvup2rgb565:
      *  D22:  3 bits of Green + 5 bits of Blue
      *  D23:  5 bits of Red   + 3 bits of Green
      * ------------------------------------------------------------------------ */
-    VSRI.8   D23, D22, #5	           @ right shift G by 5 and insert to R
+    VSRI.8   D23, D22, #5              @ right shift G by 5 and insert to R
     VSHL.U8  D22, D22, #3              @ left shift G by 3
     VSRI.8   D22, D21, #3              @ right shift B by 3 and insert to G
 
@@ -644,12 +643,11 @@ end_yyvup2rgb565:
     LDMFD SP!, {PC}
 
                                        @ end of yyvup2rgb565
-#endif
 
 constants:
-    .hword (COEFF_V_RED),  (COEFF_U_GREEN), (COEFF_V_GREEN), (COEFF_U_BLUE) @   409  | -100  |  -208  | 516
-    .hword (COEFF_Y),      (COEFF_0),       (COEFF_255)    , (COEFF_0)      @   298  |   0   |   255  |  0
-    .word (COEFF_BIAS_R), (COEFF_BIAS_G),  (COEFF_BIAS_B)                   @ -56992 | 34784 | -70688 |  X
+    .hword (COEFF_V_RED),  (COEFF_U_GREEN), (COEFF_V_GREEN), (COEFF_U_BLUE) @   359  | -88   |  -183  | 454
+    .hword (COEFF_Y),      (COEFF_0),       (COEFF_255)    , (COEFF_0)      @   256  |   0   |   255  |  0
+    .word  (COEFF_BIAS_R), (COEFF_BIAS_G),  (COEFF_BIAS_B)                  @ -45824 | 34816 | -57984 |  X
 
 /*--------------------------------------------------------------------------
 * FUNCTION     : yvup2bgr888_venum
@@ -707,8 +705,8 @@ yvup2bgr888_venum:
 
     ADR   R12, constants
 
-    VLD1.S16  {D6, D7}, [R12]!        @ D6, D7: 409 | -100 | -208 | 516 | 298 | 0 | 255 | 0
-    VLD1.S32  {D30, D31}, [R12]       @ Q15   :  -56992    |    34784   |  -70688 |     X
+    VLD1.S16  {D6, D7}, [R12]!        @ D6, D7: 359 | -88 | -183 | 454 | 256 | 0 | 255 | 0
+    VLD1.S32  {D30, D31}, [R12]       @ Q15   :  -45824   |    34816   |  -57984 |     X
 
     /*-------------------------------------------------------------------------
      *  Load the 5th parameter via stack
@@ -731,9 +729,9 @@ yvup2bgr888_venum:
     /*-------------------------------------------------------------------------
      *  Read bias
      * ------------------------------------------------------------------------ */
-    VDUP.S32  Q0,   D30[0]            @ Q0:  -56992 | -56992 | -56992 | -56992
-    VDUP.S32  Q1,   D30[1]            @ Q1:   34784 |  34784 |  34784 |  34784
-    VDUP.S32  Q2,   D31[0]            @ Q2:  -70688 | -70688 | -70688 | -70688
+    VDUP.S32  Q0,   D30[0]            @ Q0:  -45824 | -45824 | -45824 | -45824
+    VDUP.S32  Q1,   D30[1]            @ Q1:   34816 |  34816 |  34816 |  34816
+    VDUP.S32  Q2,   D31[0]            @ Q2:  -57984 | -57984 | -57984 | -57984
 
 
     /*-------------------------------------------------------------------------
@@ -757,24 +755,24 @@ loop_yvup2bgr888:
      *  D20, D21: V0 V1 V2 V3 V4 V5 V6 V7
      *  D22, D23: U0 U1 U2 U3 U4 U5 U6 U7
      * ------------------------------------------------------------------------ */
-    VMOVL.U16.U8 Q9,  D12
-    VMOVL.U16.U8 Q10, D14
-    VMOVL.U16.U8 Q11, D15
+    VMOVL.U8 Q9,  D12
+    VMOVL.U8 Q10, D14
+    VMOVL.U8 Q11, D15
 
     /*-------------------------------------------------------------------------
      *  Multiply contribution from chrominance, results are in 32-bit
      * ------------------------------------------------------------------------ */
-    VMULL.S16  Q12, D20, D6[0]        @ Q12:  409*(V0,V1,V2,V3)     Red
-    VMULL.S16  Q13, D22, D6[1]        @ Q13: -100*(U0,U1,U2,U3)     Green
-    VMLAL.S16  Q13, D20, D6[2]        @ Q13: -100*(U0,U1,U2,U3) - 208*(V0,V1,V2,V3)
-    VMULL.S16  Q14, D22, D6[3]        @ Q14:  516*(U0,U1,U2,U3)     Blue
+    VMULL.S16  Q12, D20, D6[0]        @ Q12:  359*(V0,V1,V2,V3)     Red
+    VMULL.S16  Q13, D22, D6[1]        @ Q13:  -88*(U0,U1,U2,U3)     Green
+    VMLAL.S16  Q13, D20, D6[2]        @ Q13:  -88*(U0,U1,U2,U3) - 183*(V0,V1,V2,V3)
+    VMULL.S16  Q14, D22, D6[3]        @ Q14:  454*(U0,U1,U2,U3)     Blue
 
     /*-------------------------------------------------------------------------
      *  Add bias
      * ------------------------------------------------------------------------ */
-    VADD.S32  Q12, Q0                 @ Q12 add Red   bias -56992
-    VADD.S32  Q13, Q1                 @ Q13 add Green bias  34784
-    VADD.S32  Q14, Q2                 @ Q14 add Blue  bias -70688
+    VADD.S32  Q12, Q0                 @ Q12 add Red   bias -45824
+    VADD.S32  Q13, Q1                 @ Q13 add Green bias  34816
+    VADD.S32  Q14, Q2                 @ Q14 add Blue  bias -57984
 
     /*-------------------------------------------------------------------------
      *  Calculate Red, Green, Blue
@@ -797,17 +795,17 @@ loop_yvup2bgr888:
     /*-------------------------------------------------------------------------
      *  Multiply contribution from chrominance, results are in 32-bit
      * ------------------------------------------------------------------------ */
-    VMULL.S16  Q12, D21, D6[0]        @ Q12:  409*(V0,V1,V2,V3)     Red
-    VMULL.S16  Q13, D23, D6[1]        @ Q13: -100*(U0,U1,U2,U3)     Green
-    VMLAL.S16  Q13, D21, D6[2]        @ Q13: -100*(U0,U1,U2,U3) - 208*(V0,V1,V2,V3)
-    VMULL.S16  Q14, D23, D6[3]        @ Q14:  516*(U0,U1,U2,U3)     Blue
+    VMULL.S16  Q12, D21, D6[0]        @ Q12:  359*(V0,V1,V2,V3)     Red
+    VMULL.S16  Q13, D23, D6[1]        @ Q13:  -88*(U0,U1,U2,U3)     Green
+    VMLAL.S16  Q13, D21, D6[2]        @ Q13:  -88*(U0,U1,U2,U3) - 183*(V0,V1,V2,V3)
+    VMULL.S16  Q14, D23, D6[3]        @ Q14:  454*(U0,U1,U2,U3)     Blue
 
     /*-------------------------------------------------------------------------
      *  Add bias
      * ------------------------------------------------------------------------ */
-    VADD.S32  Q12, Q0                 @ Q12 add Red   bias -56992
-    VADD.S32  Q13, Q1                 @ Q13 add Green bias  34784
-    VADD.S32  Q14, Q2                 @ Q14 add Blue  bias -70688
+    VADD.S32  Q12, Q0                 @ Q12 add Red   bias -45824
+    VADD.S32  Q13, Q1                 @ Q13 add Green bias  34816
+    VADD.S32  Q14, Q2                 @ Q14 add Blue  bias -57984
 
     /*-------------------------------------------------------------------------
      *  Calculate Red, Green, Blue
@@ -884,10 +882,11 @@ trailing_yvup2bgr888:
     BEQ  end_yvup2bgr888                        @ done if 0 pixel left
 
     SUBS length, length, #1           @ update length counter
-    VST3.U8 {D26[6], D27[6], D28[6]}, [p_bgr]!	@ store one more pixel
+    VST3.U8 {D26[6], D27[6], D28[6]}, [p_bgr]!  @ store one more pixel
 
 end_yvup2bgr888:
     LDMFD SP!, {PC}
+
                                       @ end of yvup2bgr888
 
 
@@ -946,8 +945,8 @@ yyvup2bgr888_venum:
 
     ADR   R12, constants
 
-    VLD1.S16  {D6, D7}, [R12]!         @ D6, D7: 409 | -100 | -208 | 516 | 298 | 0 | 255 | 0
-    VLD1.S32  {D30, D31}, [R12]        @ Q15   :  -56992    |    34784   |  -70688 |     X
+    VLD1.S16  {D6, D7}, [R12]!         @ D6, D7: 359 | -88 | -183 | 454 | 256 | 0 | 255 | 0
+    VLD1.S32  {D30, D31}, [R12]        @ Q15   :  -45824   |    34816   |  -57984 |     X
 
     /*-------------------------------------------------------------------------
      *  Load the 5th parameter via stack
@@ -970,8 +969,8 @@ yyvup2bgr888_venum:
     /*-------------------------------------------------------------------------
      *  Read bias
      * ------------------------------------------------------------------------ */
-    VDUP.S32  Q0,   D30[0]             @ Q0:  -56992 | -56992 | -56992 | -56992
-    VDUP.S32  Q1,   D30[1]             @ Q1:   34784 |  34784 |  34784 |  34784
+    VDUP.S32  Q0,   D30[0]             @ Q0:  -45824 | -45824 | -45824 | -45824
+    VDUP.S32  Q1,   D30[1]             @ Q1:   34816 |  34816 |  34816 |  34816
     VDUP.S32  Q2,   D31[0]             @ Q2:  -70688 | -70688 | -70688 | -70688
 
 
@@ -997,25 +996,25 @@ loop_yyvup2bgr888:
      *  D28, D29: V0 V1 V2 V3 V4 V5  V6  V7
      *  D30, D31: U0 U1 U2 U3 U4 U5  U6  U7
      * ------------------------------------------------------------------------ */
-    VMOVL.U16.U8 Q12, D12
-    VMOVL.U16.U8 Q13, D13
-    VMOVL.U16.U8 Q14, D14
-    VMOVL.U16.U8 Q15, D15
+    VMOVL.U8 Q12, D12
+    VMOVL.U8 Q13, D13
+    VMOVL.U8 Q14, D14
+    VMOVL.U8 Q15, D15
 
     /*-------------------------------------------------------------------------
      *  Multiply contribution from chrominance, results are in 32-bit
      * ------------------------------------------------------------------------ */
-    VMULL.S16  Q6, D28, D6[0]          @ Q6:  409*(V0,V1,V2,V3)     Red
-    VMULL.S16  Q7, D30, D6[1]          @ Q7: -100*(U0,U1,U2,U3)     Green
-    VMLAL.S16  Q7, D28, D6[2]          @ q7: -100*(U0,U1,U2,U3) - 208*(V0,V1,V2,V3)
-    VMULL.S16  Q8, D30, D6[3]          @ q8:  516*(U0,U1,U2,U3)     Blue
+    VMULL.S16  Q6, D28, D6[0]          @ Q6:  359*(V0,V1,V2,V3)     Red
+    VMULL.S16  Q7, D30, D6[1]          @ Q7: -88*(U0,U1,U2,U3)     Green
+    VMLAL.S16  Q7, D28, D6[2]          @ q7: -88*(U0,U1,U2,U3) - 183*(V0,V1,V2,V3)
+    VMULL.S16  Q8, D30, D6[3]          @ q8:  454*(U0,U1,U2,U3)     Blue
 
     /*-------------------------------------------------------------------------
      *  Add bias
      * ------------------------------------------------------------------------ */
-    VADD.S32  Q6, Q0                   @ Q6 add Red   bias -56992
-    VADD.S32  Q7, Q1                   @ Q7 add Green bias  34784
-    VADD.S32  Q8, Q2                   @ Q8 add Blue  bias -70688
+    VADD.S32  Q6, Q0                   @ Q6 add Red   bias -45824
+    VADD.S32  Q7, Q1                   @ Q7 add Green bias  34816
+    VADD.S32  Q8, Q2                   @ Q8 add Blue  bias -57984
 
     /*-------------------------------------------------------------------------
      *  Calculate Red, Green, Blue
@@ -1078,16 +1077,16 @@ loop_yyvup2bgr888:
     /*-------------------------------------------------------------------------
      *  Multiply contribution from chrominance, results are in 32-bit
      * ------------------------------------------------------------------------ */
-    VMULL.S16  Q6, D29, D6[0]          @ Q6: 409*(V4,V5,V6,V7)       Red
-    VMULL.S16  Q7, D31, D6[1]          @ Q7: -100*(U4,U5,U6,U7)      Green
-    VMLAL.S16  Q7, D29, D6[2]          @ Q7: -100*(U4,U5,U6,U7) - 208*(V4,V5,V6,V7)
-    VMULL.S16  Q8, D31, D6[3]          @ Q8: 516*(U4,U5,U6,U7)       Blue
+    VMULL.S16  Q6, D29, D6[0]          @ Q6: 359*(V4,V5,V6,V7)       Red
+    VMULL.S16  Q7, D31, D6[1]          @ Q7: -88*(U4,U5,U6,U7)      Green
+    VMLAL.S16  Q7, D29, D6[2]          @ Q7: -88*(U4,U5,U6,U7) - 183*(V4,V5,V6,V7)
+    VMULL.S16  Q8, D31, D6[3]          @ Q8: 454*(U4,U5,U6,U7)       Blue
 
     /*-------------------------------------------------------------------------
      *  Add bias
      * ------------------------------------------------------------------------ */
-    VADD.S32  Q6, Q0                   @ Q6 add Red   bias -56992
-    VADD.S32  Q7, Q1                   @ Q7 add Green bias  34784
+    VADD.S32  Q6, Q0                   @ Q6 add Red   bias -45824
+    VADD.S32  Q7, Q1                   @ Q7 add Green bias  34816
     VADD.S32  Q8, Q2                   @ Q8 add Blue  bias -70688
 
     /*-------------------------------------------------------------------------
@@ -1119,6 +1118,7 @@ loop_yyvup2bgr888:
     VSHRN.S32   D20, Q8,  #8           @ D20: B8 B10 B12 B14 in 16-bit Q0 format
     VSHRN.S32   D21, Q11, #8           @ D21: B9 B11 B13 B15 in 16-bit Q0 format
     VZIP.16     D20, D21               @ Q10: B8 B9 B10 B11 B12 B13 B14 B15
+
     /*-------------------------------------------------------------------------
      *  Clamp the value to be within [0~255]
      * ------------------------------------------------------------------------ */
@@ -1232,7 +1232,7 @@ end_yyvup2bgr888:
 * NOTES        :
 *--------------------------------------------------------------------------
 */
-.type yvup2abgr8888_venum,    %function
+.type yvup2abgr8888_venum, %function
 yvup2abgr8888_venum:
     /*-------------------------------------------------------------------------
      *  Store stack registers
@@ -1243,8 +1243,8 @@ yvup2abgr8888_venum:
 
     ADR   R12, constants
 
-    VLD1.S16  {D6, D7}, [R12]!         @ D6, D7: 409 | -100 | -208 | 516 | 298 | 0 | 255 | 0
-    VLD1.S32  {D30, D31}, [R12]        @ Q15   :  -56992    |    34784   |  -70688 |     X
+    VLD1.S16  {D6, D7}, [R12]!         @ D6, D7: 359 |  -88 | -183 | 454 | 256 | 0 | 255 | 0
+    VLD1.S32  {D30, D31}, [R12]        @ Q15   :  -45824    |    34816   |  -57984 |     X
 
     /*-------------------------------------------------------------------------
      *  Load the 5th parameter via stack
@@ -1267,8 +1267,8 @@ yvup2abgr8888_venum:
     /*-------------------------------------------------------------------------
      *  Read bias
      * ------------------------------------------------------------------------ */
-    VDUP.S32  Q0,   D30[0]             @ Q0:  -56992 | -56992 | -56992 | -56992
-    VDUP.S32  Q1,   D30[1]             @ Q1:   34784 |  34784 |  34784 |  34784
+    VDUP.S32  Q0,   D30[0]             @ Q0:  -45824 | -45824 | -45824 | -45824
+    VDUP.S32  Q1,   D30[1]             @ Q1:   34816 |  34816 |  34816 |  34816
     VDUP.S32  Q2,   D31[0]             @ Q2:  -70688 | -70688 | -70688 | -70688
 
 
@@ -1293,24 +1293,24 @@ loop_yvup2abgr:
      *  D20, D21: V0 V1 V2 V3 V4 V5 V6 V7
      *  D22, D23: U0 U1 U2 U3 U4 U5 U6 U7
      * ------------------------------------------------------------------------ */
-    VMOVL.U16.U8 Q9,  D12
-    VMOVL.U16.U8 Q10, D14
-    VMOVL.U16.U8 Q11, D15
+    VMOVL.U8 Q9,  D12
+    VMOVL.U8 Q10, D14
+    VMOVL.U8 Q11, D15
 
     /*-------------------------------------------------------------------------
      *  Multiply contribution from chrominance, results are in 32-bit
      * ------------------------------------------------------------------------ */
-    VMULL.S16  Q12, D20, D6[0]         @ Q12:  409*(V0,V1,V2,V3)     Red
-    VMULL.S16  Q13, D22, D6[1]         @ Q13: -100*(U0,U1,U2,U3)     Green
-    VMLAL.S16  Q13, D20, D6[2]         @ Q13: -100*(U0,U1,U2,U3) - 208*(V0,V1,V2,V3)
-    VMULL.S16  Q14, D22, D6[3]         @ Q14:  516*(U0,U1,U2,U3)     Blue
+    VMULL.S16  Q12, D20, D6[0]         @ Q12:  359*(V0,V1,V2,V3)     Red
+    VMULL.S16  Q13, D22, D6[1]         @ Q13:  -88*(U0,U1,U2,U3)     Green
+    VMLAL.S16  Q13, D20, D6[2]         @ Q13:  -88*(U0,U1,U2,U3) - 183*(V0,V1,V2,V3)
+    VMULL.S16  Q14, D22, D6[3]         @ Q14:  454*(U0,U1,U2,U3)     Blue
 
     /*-------------------------------------------------------------------------
      *  Add bias
      * ------------------------------------------------------------------------ */
-    VADD.S32  Q12, Q0                  @ Q12 add Red   bias -56992
-    VADD.S32  Q13, Q1                  @ Q13 add Green bias  34784
-    VADD.S32  Q14, Q2                  @ Q14 add Blue  bias -70688
+    VADD.S32  Q12, Q0                  @ Q12 add Red   bias -45824
+    VADD.S32  Q13, Q1                  @ Q13 add Green bias  34816
+    VADD.S32  Q14, Q2                  @ Q14 add Blue  bias -57984
 
     /*-------------------------------------------------------------------------
      *  Calculate Red, Green, Blue
@@ -1333,17 +1333,17 @@ loop_yvup2abgr:
     /*-------------------------------------------------------------------------
      *  Multiply contribution from chrominance, results are in 32-bit
      * ------------------------------------------------------------------------ */
-    VMULL.S16  Q12, D21, D6[0]         @ Q12:  409*(V0,V1,V2,V3)     Red
-    VMULL.S16  Q13, D23, D6[1]         @ Q13: -100*(U0,U1,U2,U3)     Green
-    VMLAL.S16  Q13, D21, D6[2]         @ Q13: -100*(U0,U1,U2,U3) - 208*(V0,V1,V2,V3)
-    VMULL.S16  Q14, D23, D6[3]         @ Q14:  516*(U0,U1,U2,U3)     Blue
+    VMULL.S16  Q12, D21, D6[0]         @ Q12:  359*(V0,V1,V2,V3)     Red
+    VMULL.S16  Q13, D23, D6[1]         @ Q13: -88*(U0,U1,U2,U3)     Green
+    VMLAL.S16  Q13, D21, D6[2]         @ Q13: -88*(U0,U1,U2,U3) - 183*(V0,V1,V2,V3)
+    VMULL.S16  Q14, D23, D6[3]         @ Q14:  454*(U0,U1,U2,U3)     Blue
 
     /*-------------------------------------------------------------------------
      *  Add bias
      * ------------------------------------------------------------------------ */
-    VADD.S32  Q12, Q0                  @ Q12 add Red   bias -56992
-    VADD.S32  Q13, Q1                  @ Q13 add Green bias  34784
-    VADD.S32  Q14, Q2                  @ Q14 add Blue  bias -70688
+    VADD.S32  Q12, Q0                  @ Q12 add Red   bias -45824
+    VADD.S32  Q13, Q1                  @ Q13 add Green bias  34816
+    VADD.S32  Q14, Q2                  @ Q14 add Blue  bias -57984
 
     /*-------------------------------------------------------------------------
      *  Calculate Red, Green, Blue
@@ -1425,7 +1425,7 @@ trailing_yvup2abgr:
     BEQ  end_yvup2abgr                 @ done if 0 pixel left
 
     SUBS length, length, #1            @ update length counter
-    VST4.U8 {D26[6], D27[6], D28[6], D29[6]}, [p_bgr]!	@ store one more pixel
+    VST4.U8 {D26[6], D27[6], D28[6], D29[6]}, [p_bgr]! @ store one more pixel
 
 end_yvup2abgr:
     LDMFD SP!, {PC}
@@ -1475,7 +1475,7 @@ end_yvup2abgr:
 * NOTES        :
 *--------------------------------------------------------------------------
 */
-.type yyvup2abgr8888_venum,    %function
+.type yyvup2abgr8888_venum, %function
 yyvup2abgr8888_venum:
     /*-------------------------------------------------------------------------
      *  Store stack registers
@@ -1486,8 +1486,8 @@ yyvup2abgr8888_venum:
 
     ADR   R12, constants
 
-    VLD1.S16  {D6, D7}, [R12]!         @ D6, D7: 409 | -100 | -208 | 516 | 298 | 0 | 255 | 0
-    VLD1.S32  {D30, D31}, [R12]        @ Q15   :  -56992    |    34784   |  -70688 |     X
+    VLD1.S16  {D6, D7}, [R12]!         @ D6, D7: 359 |  -88 | -183 | 454 | 256 | 0 | 255 | 0
+    VLD1.S32  {D30, D31}, [R12]        @ Q15   :  -45824    |    34816   |  -57984 |     X
 
     /*-------------------------------------------------------------------------
      *  Load the 5th parameter via stack
@@ -1510,8 +1510,8 @@ yyvup2abgr8888_venum:
     /*-------------------------------------------------------------------------
      *  Read bias
      * ------------------------------------------------------------------------ */
-    VDUP.S32  Q0,   D30[0]             @ Q0:  -56992 | -56992 | -56992 | -56992
-    VDUP.S32  Q1,   D30[1]             @ Q1:   34784 |  34784 |  34784 |  34784
+    VDUP.S32  Q0,   D30[0]             @ Q0:  -45824 | -45824 | -45824 | -45824
+    VDUP.S32  Q1,   D30[1]             @ Q1:   34816 |  34816 |  34816 |  34816
     VDUP.S32  Q2,   D31[0]             @ Q2:  -70688 | -70688 | -70688 | -70688
 
 
@@ -1537,25 +1537,25 @@ loop_yyvup2abgr:
      *  D28, D29: V0 V1 V2 V3 V4 V5  V6  V7
      *  D30, D31: U0 U1 U2 U3 U4 U5  U6  U7
      * ------------------------------------------------------------------------ */
-    VMOVL.U16.U8 Q12, D12
-    VMOVL.U16.U8 Q13, D13
-    VMOVL.U16.U8 Q14, D14
-    VMOVL.U16.U8 Q15, D15
+    VMOVL.U8 Q12, D12
+    VMOVL.U8 Q13, D13
+    VMOVL.U8 Q14, D14
+    VMOVL.U8 Q15, D15
 
     /*-------------------------------------------------------------------------
      *  Multiply contribution from chrominance, results are in 32-bit
      * ------------------------------------------------------------------------ */
-    VMULL.S16  Q6, D28, D6[0]          @ Q6:  409*(V0,V1,V2,V3)     Red
-    VMULL.S16  Q7, D30, D6[1]          @ Q7: -100*(U0,U1,U2,U3)     Green
-    VMLAL.S16  Q7, D28, D6[2]          @ q7: -100*(U0,U1,U2,U3) - 208*(V0,V1,V2,V3)
-    VMULL.S16  Q8, D30, D6[3]          @ q8:  516*(U0,U1,U2,U3)     Blue
+    VMULL.S16  Q6, D28, D6[0]          @ Q6:  359*(V0,V1,V2,V3)     Red
+    VMULL.S16  Q7, D30, D6[1]          @ Q7: -88*(U0,U1,U2,U3)     Green
+    VMLAL.S16  Q7, D28, D6[2]          @ Q7: -88*(U0,U1,U2,U3) - 183*(V0,V1,V2,V3)
+    VMULL.S16  Q8, D30, D6[3]          @ Q8:  454*(U0,U1,U2,U3)     Blue
 
     /*-------------------------------------------------------------------------
      *  Add bias
      * ------------------------------------------------------------------------ */
-    VADD.S32  Q6, Q0                   @ Q6 add Red   bias -56992
-    VADD.S32  Q7, Q1                   @ Q7 add Green bias  34784
-    VADD.S32  Q8, Q2                   @ Q8 add Blue  bias -70688
+    VADD.S32  Q6, Q0                   @ Q6 add Red   bias -45824
+    VADD.S32  Q7, Q1                   @ Q7 add Green bias  34816
+    VADD.S32  Q8, Q2                   @ Q8 add Blue  bias -57984
 
     /*-------------------------------------------------------------------------
      *  Calculate Red, Green, Blue
@@ -1624,17 +1624,17 @@ loop_yyvup2abgr:
     /*-------------------------------------------------------------------------
      *  Multiply contribution from chrominance, results are in 32-bit
      * ------------------------------------------------------------------------ */
-    VMULL.S16  Q6, D29, D6[0]          @ Q6: 409*(V4,V5,V6,V7)       Red
-    VMULL.S16  Q7, D31, D6[1]          @ Q7: -100*(U4,U5,U6,U7)      Green
-    VMLAL.S16  Q7, D29, D6[2]          @ Q7: -100*(U4,U5,U6,U7) - 208*(V4,V5,V6,V7)
-    VMULL.S16  Q8, D31, D6[3]          @ Q8: 516*(U4,U5,U6,U7)       Blue
+    VMULL.S16  Q6, D29, D6[0]          @ Q6: 359*(V4,V5,V6,V7)       Red
+    VMULL.S16  Q7, D31, D6[1]          @ Q7: -88*(U4,U5,U6,U7)      Green
+    VMLAL.S16  Q7, D29, D6[2]          @ Q7: -88*(U4,U5,U6,U7) - 183*(V4,V5,V6,V7)
+    VMULL.S16  Q8, D31, D6[3]          @ Q8: 454*(U4,U5,U6,U7)       Blue
 
     /*-------------------------------------------------------------------------
      *  Add bias
      * ------------------------------------------------------------------------ */
-    VADD.S32  Q6, Q0                   @ Q6 add Red   bias -56992
-    VADD.S32  Q7, Q1                   @ Q7 add Green bias  34784
-    VADD.S32  Q8, Q2                   @ Q8 add Blue  bias -70688
+    VADD.S32  Q6, Q0                   @ Q6 add Red   bias -45824
+    VADD.S32  Q7, Q1                   @ Q7 add Green bias  34816
+    VADD.S32  Q8, Q2                   @ Q8 add Blue  bias -57984
 
     /*-------------------------------------------------------------------------
      *  Calculate Red, Green, Blue
@@ -1665,6 +1665,7 @@ loop_yyvup2abgr:
     VSHRN.S32   D20, Q8,  #8           @ D20: B8 B10 B12 B14 in 16-bit Q0 format
     VSHRN.S32   D21, Q11, #8           @ D21: B9 B11 B13 B15 in 16-bit Q0 format
     VZIP.16     D20, D21               @ Q10: B8 B9 B10 B11 B12 B13 B14 B15
+
     /*-------------------------------------------------------------------------
      *  Clamp the value to be within [0~255]
      * ------------------------------------------------------------------------ */
