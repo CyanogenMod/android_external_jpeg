@@ -277,15 +277,24 @@ consume_data (j_decompress_ptr cinfo)
   unsigned int MCUs_per_row = cinfo->MCUs_per_row;
 #ifdef ANDROID_TILE_BASED_DECODE
   if (cinfo->tile_decode) {
+    int iMCU_width_To_MCU_width;
+    if (cinfo->comps_in_scan > 1) {
+      // Interleaved
+      iMCU_width_To_MCU_width = 1;
+    } else {
+      // Non-intervleaved
+      iMCU_width_To_MCU_width = cinfo->cur_comp_info[0]->h_samp_factor;
+    }
     MCUs_per_row = jmin(MCUs_per_row,
         (cinfo->coef->column_right_boundary - cinfo->coef->column_left_boundary)
-        * cinfo->entropy->index->MCU_sample_size * cinfo->max_h_samp_factor);
+        * cinfo->entropy->index->MCU_sample_size * iMCU_width_To_MCU_width);
   }
 #endif
 
   /* Loop to process one whole iMCU row */
   for (yoffset = coef->MCU_vert_offset; yoffset < coef->MCU_rows_per_iMCU_row;
        yoffset++) {
+   // configure huffman decoder
 #ifdef ANDROID_TILE_BASED_DECODE
     if (cinfo->tile_decode) {
       huffman_scan_header scan_header =
@@ -296,8 +305,10 @@ consume_data (j_decompress_ptr cinfo)
               [col_offset + yoffset * scan_header.MCUs_per_row]);
     }
 #endif
+
+    // zero all blocks
     for (MCU_col_num = coef->MCU_ctr; MCU_col_num < MCUs_per_row;
-	 MCU_col_num++) {
+          MCU_col_num++) {
       /* Construct list of pointers to DCT blocks belonging to this MCU */
       blkn = 0;			/* index of current DCT block within MCU */
       for (ci = 0; ci < cinfo->comps_in_scan; ci++) {
@@ -309,7 +320,7 @@ consume_data (j_decompress_ptr cinfo)
             coef->MCU_buffer[blkn++] = buffer_ptr++;
 #ifdef ANDROID_TILE_BASED_DECODE
             if (cinfo->tile_decode && cinfo->input_scan_number == 0) {
-              // need to do pre-zero ourself.
+              // need to do pre-zero ourselves.
               jzero_far((void FAR *) coef->MCU_buffer[blkn-1],
                         (size_t) (SIZEOF(JBLOCK)));
             }
@@ -317,12 +328,14 @@ consume_data (j_decompress_ptr cinfo)
           }
         }
       }
+
+
       /* Try to fetch the MCU. */
       if (! (*cinfo->entropy->decode_mcu) (cinfo, coef->MCU_buffer)) {
-	/* Suspension forced; update state counters and exit */
-	coef->MCU_vert_offset = yoffset;
-	coef->MCU_ctr = MCU_col_num;
-	return JPEG_SUSPENDED;
+        /* Suspension forced; update state counters and exit */
+        coef->MCU_vert_offset = yoffset;
+        coef->MCU_ctr = MCU_col_num;
+        return JPEG_SUSPENDED;
       }
     }
     /* Completed an MCU row, but perhaps not an iMCU row */
@@ -584,14 +597,14 @@ decompress_data (j_decompress_ptr cinfo, JSAMPIMAGE output_buf)
     int start_block = 0;
 #if ANDROID_TILE_BASED_DECODE
     if (cinfo->tile_decode) {
+      // width_in_blocks for a component depends on its h_samp_factor.
       width_in_blocks = jmin(width_in_blocks,
         (cinfo->coef->MCU_column_right_boundary -
          cinfo->coef->MCU_column_left_boundary) *
-         cinfo->max_h_samp_factor /
          compptr->h_samp_factor);
       start_block = coef->pub.MCU_columns_to_skip *
-        cinfo->max_h_samp_factor / compptr->h_samp_factor;
-    }
+         compptr->h_samp_factor;
+   }
 #endif
     /* Loop over all DCT blocks to be processed. */
     for (block_row = 0; block_row < block_rows; block_row++) {

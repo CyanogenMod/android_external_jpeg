@@ -10,8 +10,8 @@ LOCAL_SRC_FILES := \
 	jdatadst.c jdatasrc.c jdcoefct.c jdcolor.c jddctmgr.c jdhuff.c \
 	jdinput.c jdmainct.c jdmarker.c jdmaster.c jdmerge.c jdphuff.c \
 	jdpostct.c jdsample.c jdtrans.c jerror.c jfdctflt.c jfdctfst.c \
-	jfdctint.c jidctflt.c jidctred.c jquant1.c \
-	jquant2.c jutils.c jmemmgr.c \
+	jfdctint.c jidctflt.c jidctfst.c jidctint.c jidctred.c jquant1.c \
+	jquant2.c jutils.c jmemmgr.c armv6_idct.S
 
 # use ashmem as libjpeg decoder's backing store
 LOCAL_CFLAGS += -DUSE_ANDROID_ASHMEM
@@ -23,27 +23,15 @@ LOCAL_SRC_FILES += \
 #LOCAL_SRC_FILES += \
 #	jmem-android.c
 
-
-# the assembler is only for the ARM version, don't break the Linux sim
-ifneq ($(TARGET_ARCH),arm)
-ANDROID_JPEG_NO_ASSEMBLER := true
-endif
-
-# temp fix until we understand why this broke cnn.com
-#ANDROID_JPEG_NO_ASSEMBLER := true
-
-ifeq ($(strip $(ANDROID_JPEG_NO_ASSEMBLER)),true)
-LOCAL_SRC_FILES += jidctint.c jidctfst.c
-else
-LOCAL_SRC_FILES += jidctint.c jidctfst.S
-endif
-
 LOCAL_CFLAGS += -DAVOID_TABLES 
 LOCAL_CFLAGS += -O3 -fstrict-aliasing -fprefetch-loop-arrays
 #LOCAL_CFLAGS += -march=armv6j
 
 # enable tile based decode
 LOCAL_CFLAGS += -DANDROID_TILE_BASED_DECODE
+
+# enable armv6 idct assembly
+LOCAL_CFLAGS += -DANDROID_ARMV6_IDCT
 
 LOCAL_MODULE:= libjpeg
 
