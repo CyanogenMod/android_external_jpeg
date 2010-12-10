@@ -11,7 +11,7 @@ LOCAL_SRC_FILES := \
 	jdinput.c jdmainct.c jdmarker.c jdmaster.c jdmerge.c jdphuff.c \
 	jdpostct.c jdsample.c jdtrans.c jerror.c jfdctflt.c jfdctfst.c \
 	jfdctint.c jidctflt.c jidctfst.c jidctint.c jidctred.c jquant1.c \
-	jquant2.c jutils.c jmemmgr.c
+	jquant2.c jutils.c jmemmgr.c armv6_idct.S
 
 # use ashmem as libjpeg decoder's backing store
 LOCAL_CFLAGS += -DUSE_ANDROID_ASHMEM
@@ -29,6 +29,9 @@ LOCAL_CFLAGS += -O3 -fstrict-aliasing -fprefetch-loop-arrays
 
 # enable tile based decode
 LOCAL_CFLAGS += -DANDROID_TILE_BASED_DECODE
+
+# enable armv6 idct assembly
+LOCAL_CFLAGS += -DANDROID_ARMV6_IDCT
 
 LOCAL_MODULE:= libjpeg
 
