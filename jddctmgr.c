@@ -144,6 +144,13 @@ start_pass (j_decompress_ptr cinfo)
 #endif
     case DCTSIZE:
       switch (cinfo->dct_method) {
+#ifdef ANDROID_ARMV6_IDCT
+      case JDCT_ISLOW:
+      case JDCT_IFAST:
+	method_ptr = jpeg_idct_armv6;
+	method = JDCT_IFAST;
+	break;
+#else /* ANDROID_ARMV6_IDCT */
 #ifdef DCT_ISLOW_SUPPORTED
       case JDCT_ISLOW:
 	method_ptr = jpeg_idct_islow;
@@ -152,14 +159,11 @@ start_pass (j_decompress_ptr cinfo)
 #endif
 #ifdef DCT_IFAST_SUPPORTED
       case JDCT_IFAST:
-#ifdef ANDROID_ARMV6_IDCT
-	method_ptr = jpeg_idct_armv6;
-#else
 	method_ptr = jpeg_idct_ifast;
-#endif
 	method = JDCT_IFAST;
 	break;
 #endif
+#endif /* ANDROID_ARMV6_IDCT */
 #ifdef DCT_FLOAT_SUPPORTED
       case JDCT_FLOAT:
 	method_ptr = jpeg_idct_float;
@@ -233,7 +237,7 @@ start_pass (j_decompress_ptr cinfo)
 	  int j = ((i & 7) << 3) + orders[i >> 3];
 	  ifmtbl[j] = (qtbl->quantval[i] * scales[i] + 2) >> 2;
 	}
-#else
+#else /* ANDROID_ARMV6_IDCT */
 
 #define CONST_BITS 14
 	static const INT16 aanscales[DCTSIZE2] = {
@@ -255,7 +259,7 @@ start_pass (j_decompress_ptr cinfo)
 				  (INT32) aanscales[i]),
 		    CONST_BITS-IFAST_SCALE_BITS);
 	}
-#endif
+#endif /* ANDROID_ARMV6_IDCT */
       }
       break;
 #endif
