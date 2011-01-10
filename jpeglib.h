@@ -649,6 +649,10 @@ typedef struct {
 
   // save the decoder current bit buffer, entropy->bitstate.get_buffer.
   INT32 get_buffer;
+
+  // save the restart info.
+  unsigned short restarts_to_go;
+  unsigned char next_restart_num;
 } huffman_offset_data;
 
 typedef struct {
