@@ -57,9 +57,17 @@ typedef JMETHOD(void, float_DCT_method_ptr, (FAST_FLOAT * data));
  * Each IDCT routine has its own ideas about the best dct_table element type.
  */
 
+#if defined(__ARM_HAVE_NEON)
+typedef short ISLOW_MULT_TYPE; /* short is faster for Neon */
+#else
 typedef MULTIPLIER ISLOW_MULT_TYPE; /* short or int, whichever is faster */
+#endif
 #if BITS_IN_JSAMPLE == 8
+#if defined(__ARM_HAVE_NEON)
+typedef short IFAST_MULT_TYPE; /* 16 bits is faster for Neon */
+#else
 typedef MULTIPLIER IFAST_MULT_TYPE; /* 16 bits is OK, use short if faster */
+#endif
 #define IFAST_SCALE_BITS  2	/* fractional bits in scale factors */
 #else
 typedef INT32 IFAST_MULT_TYPE;	/* need 32 bits for scaled quantizers */

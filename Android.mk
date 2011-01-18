@@ -10,7 +10,7 @@ LOCAL_SRC_FILES := \
     jdatadst.c jdatasrc.c jdcoefct.c jdcolor.c jddctmgr.c jdhuff.c \
     jdinput.c jdmainct.c jdmarker.c jdmaster.c jdmerge.c jdphuff.c \
     jdpostct.c jdsample.c jdtrans.c jerror.c jfdctflt.c jfdctfst.c \
-    jfdctint.c jidctflt.c jidctfst.c jidctint.c jidctred.c jquant1.c \
+    jfdctint.c jidctflt.c jidctint.c jquant1.c \
     jquant2.c jutils.c jmemmgr.c armv6_idct.S
 
 ifeq (,$(TARGET_BUILD_APPS))
@@ -37,7 +37,7 @@ LOCAL_CFLAGS += -DANDROID_TILE_BASED_DECODE
 
 ifeq ($(TARGET_ARCH),x86)
   LOCAL_CFLAGS += -DANDROID_INTELSSE2_IDCT
-  LOCAL_SRC_FILES += jidctintelsse.c
+  LOCAL_SRC_FILES += jidctfst.c jidctred.c jidctintelsse.c
 endif
 
 ifeq ($(strip $(TARGET_ARCH)),arm)
@@ -46,10 +46,13 @@ ifeq ($(strip $(TARGET_ARCH)),arm)
     LOCAL_CFLAGS += -DNV_ARM_NEON
     LOCAL_SRC_FILES += \
         jsimd_arm_neon.S \
-        jsimd_neon.c
+        jsimd_neon.c \
+	jidctfst_neon.S \
+	jidctred_neon.S
   else
     # enable armv6 idct assembly
     LOCAL_CFLAGS += -DANDROID_ARMV6_IDCT
+    LOCAL_SRC_FILES += jidctfst.c jidctred.c
   endif
 endif
 
@@ -61,6 +64,7 @@ ifeq ($(strip $(TARGET_ARCH)),mips)
       mips_jidctfst.c \
       mips_idct_le.S
   endif
+ LOCAL_SRC_FILES += jidctfst.c jidctred.c
 endif
 
 LOCAL_MODULE := libjpeg_static
