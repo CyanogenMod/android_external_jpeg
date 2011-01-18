@@ -5,6 +5,13 @@
  * This file is part of the Independent JPEG Group's software.
  * For conditions of distribution and use, see the accompanying README file.
  *
+ * Copyright (C) ST-Ericsson SA 2010
+ *
+ * Added neon optimized color conversion for often used Android color formats.
+ *
+ * Author: Henrik Smiding henrik.smiding@stericsson.com for
+ * ST-Ericsson.
+ *
  * This file contains output colorspace conversion routines.
  */
 
@@ -47,6 +54,26 @@ static const INT32 dither_matrix[4] = {
   0x0F070D05
 };
 
+#if defined(__ARM_HAVE_NEON)
+#include <arm_neon.h>
+
+#if BITS_IN_JSAMPLE == 8
+#define ENABLE_NEON_YCC_RGBA_8888
+#define ENABLE_NEON_YCC_RGB_565
+#define ENABLE_NEON_YCC_RGB_565D
+
+LOCAL(void)
+clear_ycc_rgb_table(j_decompress_ptr cinfo)
+{
+  my_cconvert_ptr cconvert = (my_cconvert_ptr)cinfo->cconvert;
+
+  cconvert->Cr_r_tab = NULL;
+  cconvert->Cb_b_tab = NULL;
+  cconvert->Cr_g_tab = NULL;
+  cconvert->Cb_g_tab = NULL;
+}
+#endif
+#endif
 #endif
 
 
@@ -178,6 +205,10 @@ ycc_rgb_convert (j_decompress_ptr cinfo,
 }
 
 #ifdef ANDROID_RGB
+#define YCC_RGBA_8888_Proc ycc_rgba_8888_convert
+#define YCC_RGB_565D_Proc  ycc_rgb_565D_convert
+#define YCC_RGB_565_Proc   ycc_rgb_565_convert
+
 METHODDEF(void)
 ycc_rgba_8888_convert (j_decompress_ptr cinfo,
          JSAMPIMAGE input_buf, JDIMENSION input_row,
@@ -364,7 +395,394 @@ ycc_rgb_565D_convert (j_decompress_ptr cinfo,
   }
 }
 
+
+// Use neon optimized version?
+#if defined(ENABLE_NEON_YCC_RGBA_8888)
+#undef YCC_RGBA_8888_Proc
+#define YCC_RGBA_8888_Proc ycc_rgba_8888_neon_convert
+
+METHODDEF(void)
+ycc_rgba_8888_neon_convert (j_decompress_ptr cinfo,
+         JSAMPIMAGE input_buf, JDIMENSION input_row,
+         JSAMPARRAY output_buf, int num_rows)
+{
+  JDIMENSION num_cols = cinfo->output_width;
+
+  // Fallback to non neon method for small conversions
+  if (num_cols < 8)
+  {
+    my_cconvert_ptr cconvert = (my_cconvert_ptr) cinfo->cconvert;
+
+    if (cconvert->Cr_r_tab == NULL) {
+      build_ycc_rgb_table(cinfo);
+    }
+    ycc_rgba_8888_convert(cinfo, input_buf, input_row, output_buf, num_rows);
+    return;
+  }
+
+  asm volatile (
+                // Setup constants
+                "vmov.u8        d28, #255                       \n\t"   // Set alpha to 0xFF
+                "vmov.u8        d29, #128                       \n\t"   // Set center sample constant to CENTERJSAMPLE
+                "ldr            r0, =91881                      \n\t"   // Load Cr_r constant
+                "vdup.32        q0, r0                          \n\t"   //
+                "ldr            r0, =-46802                     \n\t"   // Load Cr_g constant
+                "vdup.32        q1, r0                          \n\t"   //
+                "ldr            r0, =-22554                     \n\t"   // Load Cb_g constant
+                "vdup.32        q2, r0                          \n\t"   //
+                "ldr            r0, =116130                     \n\t"   // Load Cb_b constant
+                "vdup.32        q3, r0                          \n\t"   //
+                // Outer loop (rows)
+                "1:                                             \n\t"   //
+                "sub            %[num_rows], %[num_rows], #1    \n\t"   // decrement and check num_rows <= 0
+                "cmp            %[num_rows], #0                 \n\t"   //
+                "blt            3f                              \n\t"   //
+                "ldr            r1,[%[input_buf], #0]           \n\t"   // Setup y input pointer from input_buf[0][input_row]
+                "ldr            r1,[r1, %[input_row], lsl #2]   \n\t"   //
+                "ldr            r2,[%[input_buf], #4]           \n\t"   // Setup cb input pointer from input_buf[1][input_row]
+                "pld            [r1]                            \n\t"   //
+                "ldr            r2,[r2, %[input_row], lsl #2]   \n\t"   //
+                "ldr            r3,[%[input_buf], #8]           \n\t"   // Setup cr input pointer from input_buf[2][input_row]
+                "pld            [r2]                            \n\t"   //
+                "ldr            r3,[r3, %[input_row], lsl #2]   \n\t"   //
+                "add            %[input_row], %[input_row], #1  \n\t"   // input_row++
+                "pld            [r3]                            \n\t"   //
+                "ldr            r4, [%[output_buf]], #4         \n\t"   // Get output pointer and increment
+                "ands           r0, %[num_cols], #7             \n\t"   // Calculate first iteration increment
+                "moveq          r0, #8                          \n\t"   // If columns are even eight, do full iteration
+                "mov            r5, %[num_cols]                 \n\t"   // Setup loop counter
+                // Inner loop (columns)
+                "2:                                             \n\t"   //
+                // Read values, subtract 128 from cb/cr, and expand to 32-bit
+                "vld1.8         {d30}, [r2]                     \n\t"   // Load eight cb values
+                "vld1.8         {d31}, [r3]                     \n\t"   // Load eight cr values
+                "vsubl.u8       q8, d30, d29                    \n\t"   // Subtract CENTERJSAMPLE from cb and expand to 16-bit
+                "vmovl.s16      q10, d16                        \n\t"   // Expand low cb values to 32-bit
+                "vmovl.s16      q11, d17                        \n\t"   // Expand high cb values to 32-bit
+                "add            r2, r2, r0                      \n\t"   // Increment input pointer for cb
+                "vsubl.u8       q9, d31, d29                    \n\t"   // Subtract CENTERJSAMPLE from cr and expand to 16-bit
+                "pld            [r2]                            \n\t"   //
+                "vmovl.s16      q12, d18                        \n\t"   // Expand low cr values to 32-bit
+                "vmovl.s16      q13, d19                        \n\t"   // Expand high cr values to 32-bit
+                "add            r3, r3, r0                      \n\t"   // Increment input pointer for cr
+                "vld1.8         {d30}, [r1]                     \n\t"   // Load eight y values
+                "pld            [r3]                            \n\t"   //
+                // Multiply with the constants. Split into RGB (Vector multiply)
+                "vmul.i32       q8, q10, q2                     \n\t"   // Calculate green low/high
+                "vmul.i32       q9, q11, q2                     \n\t"   //
+                "vmla.i32       q8, q12, q1                     \n\t"   //
+                "vmla.i32       q9, q13, q1                     \n\t"   //
+                "vmul.i32       q10, q10, q3                    \n\t"   // Calculate blue low/high
+                "vmul.i32       q11, q11, q3                    \n\t"   //
+                "vmul.i32       q12, q12, q0                    \n\t"   // Calculate red low/high
+                "vmul.i32       q13, q13, q0                    \n\t"   //
+                "add            r1, r1, r0                      \n\t"   // Increment input pointer for y
+                // Shift and combine RGB result (Vector rounding narrowing shift right by constant)
+                "vrshrn.i32     d16, q8, #16                    \n\t"   // Shift green
+                "pld            [r1]                            \n\t"   //
+                "vrshrn.i32     d17, q9, #16                    \n\t"   //
+                "vrshrn.i32     d20, q10, #16                   \n\t"   // Shift blue
+                "vrshrn.i32     d21, q11, #16                   \n\t"   //
+                "vrshrn.i32     d24, q12, #16                   \n\t"   // Shift red
+                "vrshrn.i32     d25, q13, #16                   \n\t"   //
+                // // Add y (Vector add)
+                "vmovl.u8       q15, d30                        \n\t"   // Expand y to 16-bit
+                "vadd.i16       q8, q15                         \n\t"   // Add y to green
+                "vadd.i16       q10, q15                        \n\t"   // Add y to blue
+                "vadd.i16       q12, q15                        \n\t"   // Add y to red
+                "subs           r5, r5, r0                      \n\t"   // Decrement loop counter
+                // Convert result from signed 16-bit to unsinged 8-bit with range limitation.
+                // Range-limiting is essential due to noise introduced by DCT losses.
+                // (Vector Saturating Move and Narrow, signed operand with Unsigned result)
+                "vqmovun.s16    d26, q8                         \n\t"   // Convert green
+                "vqmovun.s16    d27, q10                        \n\t"   // Convert blue
+                "vqmovun.s16    d25, q12                        \n\t"   // Convert red
+                "vst4.8         {d25, d26, d27, d28}, [r4]      \n\t"   // Write result to memory
+                // Increase pointers and counters
+                "add            r4, r4, r0, lsl #2              \n\t"   // Increment output buffer pointer
+                "mov            r0, #8                          \n\t"   // Set next loop iteration length
+                "bne            2b                              \n\t"   // If inner loop counter != 0, loop
+                "b              1b                              \n\t"   // Outer loop
+                "3:                                             \n\t"   //
+                : [input_row] "+r" (input_row), [output_buf] "+r" (output_buf), [num_rows] "+r" (num_rows)
+                : [input_buf] "r" (input_buf), [num_cols] "r" (num_cols)
+                : "cc", "memory", "r0", "r1", "r2", "r3", "r4", "r5", "d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7", "d16", "d17", "d18", "d19", "d20", "d21", "d22", "d23", "d24", "d25", "d26", "d27", "d28", "d29", "d30", "d31"
+                );
+}
 #endif
+
+
+#if defined(ENABLE_NEON_YCC_RGB_565)
+#undef YCC_RGB_565_Proc
+#define YCC_RGB_565_Proc ycc_rgb_565_neon_convert
+
+METHODDEF(void)
+ycc_rgb_565_neon_convert (j_decompress_ptr cinfo,
+         JSAMPIMAGE input_buf, JDIMENSION input_row,
+         JSAMPARRAY output_buf, int num_rows)
+{
+  JDIMENSION num_cols = cinfo->output_width;
+
+  // Fallback to non neon method for small conversions
+  if (num_cols < 8)
+  {
+    my_cconvert_ptr cconvert = (my_cconvert_ptr) cinfo->cconvert;
+
+    if (cconvert->Cr_r_tab == NULL) {
+      build_ycc_rgb_table(cinfo);
+    }
+    ycc_rgb_565_convert(cinfo, input_buf, input_row, output_buf, num_rows);
+    return;
+  }
+
+  asm volatile (
+                // Setup constants
+                "vmov.u8        d28, #255                       \n\t"   // Set alpha to 0xFF
+                "vmov.u8        d29, #128                       \n\t"   // Set center sample constant to CENTERJSAMPLE
+                "ldr            r0, =91881                      \n\t"   // Load Cr_r constant
+                "vdup.32        q0, r0                          \n\t"   //
+                "ldr            r0, =-46802                     \n\t"   // Load Cr_g constant
+                "vdup.32        q1, r0                          \n\t"   //
+                "ldr            r0, =-22554                     \n\t"   // Load Cb_g constant
+                "vdup.32        q2, r0                          \n\t"   //
+                "ldr            r0, =116130                     \n\t"   // Load Cb_b constant
+                "vdup.32        q3, r0                          \n\t"   //
+                // Outer loop (rows)
+                "1:                                             \n\t"   //
+                "sub            %[num_rows], %[num_rows], #1    \n\t"   // decrement and check num_rows <= 0
+                "cmp            %[num_rows], #0                 \n\t"   //
+                "blt            3f                              \n\t"   //
+                "ldr            r1,[%[input_buf], #0]           \n\t"   // Setup y input pointer from input_buf[0][input_row]
+                "ldr            r1,[r1, %[input_row], lsl #2]   \n\t"   //
+                "ldr            r2,[%[input_buf], #4]           \n\t"   // Setup cb input pointer from input_buf[1][input_row]
+                "pld            [r1]                            \n\t"   //
+                "ldr            r2,[r2, %[input_row], lsl #2]   \n\t"   //
+                "ldr            r3,[%[input_buf], #8]           \n\t"   // Setup cr input pointer from input_buf[2][input_row]
+                "pld            [r2]                            \n\t"   //
+                "ldr            r3,[r3, %[input_row], lsl #2]   \n\t"   //
+                "add            %[input_row], %[input_row], #1  \n\t"   // input_row++
+                "pld            [r3]                            \n\t"   //
+                "ldr            r4, [%[output_buf]], #4         \n\t"   // Get output pointer and increment
+                "ands           r0, %[num_cols], #7             \n\t"   // Calculate first iteration increment
+                "moveq          r0, #8                          \n\t"   // If columns are even eight, do full iteration
+                "mov            r5, %[num_cols]                 \n\t"   // Setup loop counter
+                // Inner loop (columns)
+                "2:                                             \n\t"   //
+                // Read values, subtract 128 from cb/cr, and expand to 32-bit
+                "vld1.8         {d30}, [r2]                     \n\t"   // Load eight cb values
+                "vld1.8         {d31}, [r3]                     \n\t"   // Load eight cr values
+                "vsubl.u8       q8, d30, d29                    \n\t"   // Subtract CENTERJSAMPLE from cb and expand to 16-bit
+                "vmovl.s16      q10, d16                        \n\t"   // Expand low cb values to 32-bit
+                "vmovl.s16      q11, d17                        \n\t"   // Expand high cb values to 32-bit
+                "add            r2, r2, r0                      \n\t"   // Increment input pointer for cb
+                "vsubl.u8       q9, d31, d29                    \n\t"   // Subtract CENTERJSAMPLE from cr and expand to 16-bit
+                "pld            [r2]                            \n\t"   //
+                "vmovl.s16      q12, d18                        \n\t"   // Expand low cr values to 32-bit
+                "vmovl.s16      q13, d19                        \n\t"   // Expand high cr values to 32-bit
+                "add            r3, r3, r0                      \n\t"   // Increment input pointer for cr
+                "vld1.8         {d30}, [r1]                     \n\t"   // Load eight y values
+                "pld            [r3]                            \n\t"   //
+                // Multiply with the constants. Split into RGB (Vector multiply)
+                "vmul.i32       q8, q10, q2                     \n\t"   // Calculate green low/high
+                "vmul.i32       q9, q11, q2                     \n\t"   //
+                "vmla.i32       q8, q12, q1                     \n\t"   //
+                "vmla.i32       q9, q13, q1                     \n\t"   //
+                "vmul.i32       q10, q10, q3                    \n\t"   // Calculate blue low/high
+                "vmul.i32       q11, q11, q3                    \n\t"   //
+                "vmul.i32       q12, q12, q0                    \n\t"   // Calculate red low/high
+                "vmul.i32       q13, q13, q0                    \n\t"   //
+                "add            r1, r1, r0                      \n\t"   // Increment input pointer for y
+                // Shift and combine RGB result (Vector rounding narrowing shift right by constant)
+                "vrshrn.i32     d16, q8, #16                    \n\t"   // Shift green
+                "pld            [r1]                            \n\t"   //
+                "vrshrn.i32     d17, q9, #16                    \n\t"   //
+                "vrshrn.i32     d20, q10, #16                   \n\t"   // Shift blue
+                "vrshrn.i32     d21, q11, #16                   \n\t"   //
+                "vrshrn.i32     d24, q12, #16                   \n\t"   // Shift red
+                "vrshrn.i32     d25, q13, #16                   \n\t"   //
+                // // Add y (Vector add)
+                "vmovl.u8       q15, d30                        \n\t"   // Expand y to 16-bit
+                "vadd.i16       q8, q15                         \n\t"   // Add y to green
+                "vadd.i16       q10, q15                        \n\t"   // Add y to blue
+                "vadd.i16       q12, q15                        \n\t"   // Add y to red
+                "subs           r5, r5, r0                      \n\t"   // Decrement loop counter
+                // Convert result from signed 16-bit to unsinged 8-bit with range limitation.
+                // Range-limiting is essential due to noise introduced by DCT losses.
+                // (Vector Saturating Move and Narrow, signed operand with Unsigned result)
+                "vqmovun.s16    d16, q8                         \n\t"   // Convert green
+                "vqmovun.s16    d20, q10                        \n\t"   // Convert blue
+                "vqmovun.s16    d24, q12                        \n\t"   // Convert red
+                // Pack to 565 format
+                "vshll.u8       q8, d16, #8                     \n\t"   // Shift green and expand to 16-bit
+                "vshll.u8       q12, d24, #8                    \n\t"   // Shift red and expand to 16-bit
+                "vshll.u8       q10, d20, #8                    \n\t"   // Shift blue and expand to 16-bit
+                "vsri.u16       q12, q8, #5                     \n\t"   // Insert green into red
+                "vsri.u16       q12, q10, #11                   \n\t"   // Insert blue into red
+                "vst1.16        {q12}, [r4]                     \n\t"   // Write result to memory
+                // Increase pointers and counters
+                "add            r4, r4, r0, lsl #1              \n\t"   // Increment output buffer pointer
+                "mov            r0, #8                          \n\t"   // Set next loop iteration length
+                "bne            2b                              \n\t"   // If inner loop counter != 0, loop
+                "b              1b                              \n\t"   // Outer loop
+                "3:                                             \n\t"   //
+                : [input_row] "+r" (input_row), [output_buf] "+r" (output_buf), [num_rows] "+r" (num_rows)
+                : [input_buf] "r" (input_buf), [num_cols] "r" (num_cols)
+                : "cc", "memory", "r0", "r1", "r2", "r3", "r4", "r5", "d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7", "d16", "d17", "d18", "d19", "d20", "d21", "d22", "d23", "d24", "d25", "d26", "d27", "d28", "d29", "d30", "d31"
+                );
+}
+#endif
+
+
+#if defined(ENABLE_NEON_YCC_RGB_565D)
+#undef YCC_RGB_565D_Proc
+#define YCC_RGB_565D_Proc ycc_rgb_565D_neon_convert
+
+/* Declarations for ordered dithering for neon code.
+ *
+ * We use 4x4 ordered dither array, repeated three times to
+ * allow an 8-byte load from offsets 0, 1, 2 or 3.
+ * sufficent for dithering RGB_888 to RGB_565.
+ */
+static const uint8_t dither_matrix_neon[48] = {
+  10,  2,  8,  0, 10,  2,  8,  0, 10,  2,  8,  0,
+   6, 14,  4, 12,  6, 14,  4, 12,  6, 14,  4, 12,
+   9,  1, 11,  3,  9,  1, 11,  3,  9,  1, 11,  3,
+   5, 13,  7, 15,  5, 13,  7, 15,  5, 13,  7, 15
+};
+
+METHODDEF(void)
+ycc_rgb_565D_neon_convert (j_decompress_ptr cinfo,
+         JSAMPIMAGE input_buf, JDIMENSION input_row,
+         JSAMPARRAY output_buf, int num_rows)
+{
+  JDIMENSION num_cols = cinfo->output_width;
+  const uint8_t* matrix = dither_matrix_neon + ((cinfo->output_scanline & DITHER_MASK) * 12);
+
+  // Fallback to non neon method for small conversions
+  if (num_cols < 8)
+  {
+    my_cconvert_ptr cconvert = (my_cconvert_ptr) cinfo->cconvert;
+
+    if (cconvert->Cr_r_tab == NULL) {
+      build_ycc_rgb_table(cinfo);
+    }
+    ycc_rgb_565D_convert(cinfo, input_buf, input_row, output_buf, num_rows);
+    return;
+  }
+
+  asm volatile (
+                // Setup constants
+                "vmov.u8        d28, #128                       \n\t"   // Set center sample constant to CENTERJSAMPLE
+                "ldr            r0, =91881                      \n\t"   // Load Cr_r constant
+                "vdup.32        q0, r0                          \n\t"   //
+                "ldr            r0, =-46802                     \n\t"   // Load Cr_g constant
+                "vdup.32        q1, r0                          \n\t"   //
+                "ldr            r0, =-22554                     \n\t"   // Load Cb_g constant
+                "vdup.32        q2, r0                          \n\t"   //
+                "ldr            r0, =116130                     \n\t"   // Load Cb_b constant
+                "vdup.32        q3, r0                          \n\t"   //
+                // Outer loop (rows)
+                "1:                                             \n\t"   //
+                "sub            %[num_rows], %[num_rows], #1    \n\t"   // decrement and check num_rows <= 0
+                "cmp            %[num_rows], #0                 \n\t"   //
+                "blt            5f                              \n\t"   //
+                "ldr            r1,[%[input_buf], #0]           \n\t"   // Setup y input pointer from input_buf[0][input_row]
+                "ldr            r1,[r1, %[input_row], lsl #2]   \n\t"   //
+                "ldr            r2,[%[input_buf], #4]           \n\t"   // Setup cb input pointer from input_buf[1][input_row]
+                "pld            [r1]                            \n\t"   //
+                "ldr            r2,[r2, %[input_row], lsl #2]   \n\t"   //
+                "ldr            r3,[%[input_buf], #8]           \n\t"   // Setup cr input pointer from input_buf[2][input_row]
+                "pld            [r2]                            \n\t"   //
+                "ldr            r3,[r3, %[input_row], lsl #2]   \n\t"   //
+                "add            %[input_row], %[input_row], #1  \n\t"   // input_row++
+                "pld            [r3]                            \n\t"   //
+                "ldr            r4, [%[output_buf]], #4         \n\t"   // Get output pointer and increment
+                "ands           r0, %[num_cols], #7             \n\t"   // Calculate first iteration increment
+                "vld1.8         {d14}, [%[matrix]]              \n\t"   // Load dither values
+                "beq            2f                              \n\t"   //
+                "and            r5, r0, #0x3                    \n\t"   // If columns are not even eight, calculate offset in matrix array
+                "add            r5, %[matrix]                   \n\t"   //
+                "vld1.8         {d15}, [r5]                     \n\t"   // ...and load iteration 2+ dither values
+                "b              3f                              \n\t"   //
+                "2:                                             \n\t"   //
+                "vmov           d15, d14                        \n\t"   // If columns are even eight, use the same dither matrix for all iterations
+                "mov            r0, #8                          \n\t"   // ...and do full iteration
+                "3:                                             \n\t"   //
+                "mov            r5, %[num_cols]                 \n\t"   // Setup loop counter
+                // Inner loop (columns)
+                "4:                                             \n\t"   //
+                // Read values, subtract 128 from cb/cr, and expand to 32-bit
+                "vld1.8         {d30}, [r2]                     \n\t"   // Load eight cb values
+                "vld1.8         {d31}, [r3]                     \n\t"   // Load eight cr values
+                "vsubl.u8       q8, d30, d28                    \n\t"   // Subtract CENTERJSAMPLE from cb and expand to 16-bit
+                "vmovl.s16      q10, d16                        \n\t"   // Expand low cb values to 32-bit
+                "vmovl.s16      q11, d17                        \n\t"   // Expand high cb values to 32-bit
+                "add            r2, r2, r0                      \n\t"   // Increment input pointer for cb
+                "vsubl.u8       q9, d31, d28                    \n\t"   // Subtract CENTERJSAMPLE from cr and expand to 16-bit
+                "pld            [r2]                            \n\t"   //
+                "vmovl.s16      q12, d18                        \n\t"   // Expand low cr values to 32-bit
+                "vmovl.s16      q13, d19                        \n\t"   // Expand high cr values to 32-bit
+                "add            r3, r3, r0                      \n\t"   // Increment input pointer for cr
+                "vld1.8         {d30}, [r1]                     \n\t"   // Load eight y values
+                "pld            [r3]                            \n\t"   //
+                // Multiply with the constants. Split into RGB (Vector multiply)
+                "vmul.i32       q8, q10, q2                     \n\t"   // Calculate green low/high
+                "vmul.i32       q9, q11, q2                     \n\t"   //
+                "vmla.i32       q8, q12, q1                     \n\t"   //
+                "vmla.i32       q9, q13, q1                     \n\t"   //
+                "vmul.i32       q10, q10, q3                    \n\t"   // Calculate blue low/high
+                "vmul.i32       q11, q11, q3                    \n\t"   //
+                "vmul.i32       q12, q12, q0                    \n\t"   // Calculate red low/high
+                "vmul.i32       q13, q13, q0                    \n\t"   //
+                "add            r1, r1, r0                      \n\t"   // Increment input pointer for y
+                // Shift and combine RGB result (Vector rounding narrowing shift right by constant)
+                "vrshrn.i32     d16, q8, #16                    \n\t"   // Shift green
+                "pld            [r1]                            \n\t"   //
+                "vrshrn.i32     d17, q9, #16                    \n\t"   //
+                "vrshrn.i32     d20, q10, #16                   \n\t"   // Shift blue
+                "vrshrn.i32     d21, q11, #16                   \n\t"   //
+                "vrshrn.i32     d24, q12, #16                   \n\t"   // Shift red
+                "vrshrn.i32     d25, q13, #16                   \n\t"   //
+                // // Add y (Vector add)
+                "vmovl.u8       q15, d30                        \n\t"   // Expand y to 16-bit
+                "vadd.i16       q8, q15                         \n\t"   // Add y to green
+                "vadd.i16       q10, q15                        \n\t"   // Add y to blue
+                "vadd.i16       q12, q15                        \n\t"   // Add y to red
+                "subs           r5, r5, r0                      \n\t"   // Decrement loop counter
+                // Do the dither
+                "vaddw.s8       q10, d14                        \n\t"   // Add dither to blue
+                "vaddw.s8       q12, d14                        \n\t"   // Add dither to red
+                "vshr.s8        d14, #1                         \n\t"   // Shift green dither by one, since green will use 6 bits
+                "vaddw.s8       q8, d14                         \n\t"   // Add dither to green
+                // Convert result from signed 16-bit to unsinged 8-bit with range limitation.
+                // Range-limiting is essential due to noise introduced by DCT losses.
+                // (Vector Saturating Move and Narrow, signed operand with Unsigned result)
+                "vqmovun.s16    d16, q8                         \n\t"   // Convert green
+                "vqmovun.s16    d20, q10                        \n\t"   // Convert blue
+                "vqmovun.s16    d24, q12                        \n\t"   // Convert red
+                // Pack to 565 format
+                "vshll.u8       q8, d16, #8                     \n\t"   // Shift green and expand to 16-bit
+                "vshll.u8       q12, d24, #8                    \n\t"   // Shift red and expand to 16-bit
+                "vshll.u8       q10, d20, #8                    \n\t"   // Shift blue and expand to 16-bit
+                "vsri.u16       q12, q8, #5                     \n\t"   // Insert green into red
+                "vsri.u16       q12, q10, #11                   \n\t"   // Insert blue into red
+                "vst1.16        {q12}, [r4]                     \n\t"   // Write result to memory
+                // Increase pointers and counters
+                "add            r4, r4, r0, lsl #1              \n\t"   // Increment output buffer pointer
+                "vmov.u8        d14, d15                        \n\t"   // Set dither matrix to iteration 2+ values
+                "mov            r0, #8                          \n\t"   // Set next loop iteration length
+                "bne            4b                              \n\t"   // If inner loop counter != 0, loop
+                "b              1b                              \n\t"   // Outer loop
+                "5:                                             \n\t"   //
+                : [input_row] "+r" (input_row), [output_buf] "+r" (output_buf), [num_rows] "+r" (num_rows)
+                : [input_buf] "r" (input_buf), [num_cols] "r" (num_cols), [matrix] "r" (matrix)
+                : "cc", "memory", "r0", "r1", "r2", "r3", "r4", "r5", "d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7", "d14", "d15", "d16", "d17", "d18", "d19", "d20", "d21", "d22", "d23", "d24", "d25", "d26", "d27", "d28", "d30", "d31"
+                );
+}
+#endif
+
+#endif
+
 
 /**************** Cases other than YCbCr -> RGB(A) **************/
 
@@ -818,16 +1236,12 @@ jinit_color_deconverter (j_decompress_ptr cinfo)
   case JCS_RGBA_8888:
     cinfo->out_color_components = 4;
     if (cinfo->jpeg_color_space == JCS_YCbCr) {
-#if defined(NV_ARM_NEON) && defined(__ARM_HAVE_NEON)
-      if (cap_neon_ycc_rgb()) {
-        cconvert->pub.color_convert = jsimd_ycc_rgba8888_convert;
-      } else {
-        cconvert->pub.color_convert = ycc_rgba_8888_convert;
-      }
+      cconvert->pub.color_convert = YCC_RGBA_8888_Proc;
+#if defined(ENABLE_NEON_YCC_RGBA_8888)
+      clear_ycc_rgb_table(cinfo);
 #else
-      cconvert->pub.color_convert = ycc_rgba_8888_convert;
-#endif
       build_ycc_rgb_table(cinfo);
+#endif
     } else if (cinfo->jpeg_color_space == JCS_GRAYSCALE) {
       cconvert->pub.color_convert = gray_rgba_8888_convert;
     } else if (cinfo->jpeg_color_space == JCS_RGB) {
@@ -840,16 +1254,12 @@ jinit_color_deconverter (j_decompress_ptr cinfo)
     cinfo->out_color_components = RGB_PIXELSIZE;
     if (cinfo->dither_mode == JDITHER_NONE) {
       if (cinfo->jpeg_color_space == JCS_YCbCr) {
-#if defined(NV_ARM_NEON) && defined(__ARM_HAVE_NEON)
-        if (cap_neon_ycc_rgb())  {
-          cconvert->pub.color_convert = jsimd_ycc_rgb565_convert;
-        } else {
-          cconvert->pub.color_convert = ycc_rgb_565_convert;
-        }
+        cconvert->pub.color_convert = YCC_RGB_565_Proc;
+#if defined(ENABLE_NEON_YCC_RGB_565)
+        clear_ycc_rgb_table(cinfo);
 #else
-        cconvert->pub.color_convert = ycc_rgb_565_convert;
-#endif
         build_ycc_rgb_table(cinfo);
+#endif
       } else if (cinfo->jpeg_color_space == JCS_GRAYSCALE) {
         cconvert->pub.color_convert = gray_rgb_565_convert;
       } else if (cinfo->jpeg_color_space == JCS_RGB) {
@@ -859,8 +1269,12 @@ jinit_color_deconverter (j_decompress_ptr cinfo)
     } else {
       /* only ordered dither is supported */
       if (cinfo->jpeg_color_space == JCS_YCbCr) {
-        cconvert->pub.color_convert = ycc_rgb_565D_convert;
+        cconvert->pub.color_convert = YCC_RGB_565D_Proc;
+#if defined(ENABLE_NEON_YCC_RGB_565D)
+        clear_ycc_rgb_table(cinfo);
+#else
         build_ycc_rgb_table(cinfo);
+#endif
       } else if (cinfo->jpeg_color_space == JCS_GRAYSCALE) {
         cconvert->pub.color_convert = gray_rgb_565D_convert;
       } else if (cinfo->jpeg_color_space == JCS_RGB) {
