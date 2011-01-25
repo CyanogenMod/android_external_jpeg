@@ -347,7 +347,7 @@ METHODDEF(void)
 h2v1_merged_upsample_565 (j_decompress_ptr cinfo,
               JSAMPIMAGE input_buf, JDIMENSION in_row_group_ctr,
               JSAMPARRAY output_buf)
-#if defined(ANDROID_JPEG_USE_VENUM)
+#if defined(ANDROID_JPEG_USE_VENUM) && !defined(ANDROID_JPEG_DISABLE_VENUM_YCC_RGB_565)
 {
   my_upsample_ptr upsample = (my_upsample_ptr) cinfo->upsample;
   JSAMPROW inptr0, inptr1, inptr2;
@@ -628,7 +628,7 @@ METHODDEF(void)
 h2v2_merged_upsample_565 (j_decompress_ptr cinfo,
               JSAMPIMAGE input_buf, JDIMENSION in_row_group_ctr,
               JSAMPARRAY output_buf)
-#if defined(ANDROID_JPEG_USE_VENUM)
+#if defined(ANDROID_JPEG_USE_VENUM) && !defined(ANDROID_JPEG_DISABLE_VENUM_YCC_RGB_565)
 {
   my_upsample_ptr upsample = (my_upsample_ptr) cinfo->upsample;
   JSAMPROW outptr0, outptr1;
@@ -854,7 +854,7 @@ jinit_merged_upsampler (j_decompress_ptr cinfo)
     upsample->upmethod = h2v2_merged_upsample;
 #ifdef ANDROID_RGB
     if (cinfo->out_color_space == JCS_RGB_565) {
-#if !defined(ANDROID_JPEG_USE_VENUM)
+#if !defined(ANDROID_JPEG_USE_VENUM) || defined(ANDROID_JPEG_DISABLE_VENUM_YCC_RGB_565)
       if (cinfo->dither_mode != JDITHER_NONE) {
         upsample->upmethod = h2v2_merged_upsample_565D;
       } else
@@ -891,7 +891,10 @@ jinit_merged_upsampler (j_decompress_ptr cinfo)
     upsample->spare_row = NULL;
   }
 
-#if !defined(ANDROID_JPEG_USE_VENUM)
+#ifdef ANDROID_JPEG_DISABLE_VENUM_YCC_RGB_565
+  if (cinfo->out_color_space == JCS_RGB_565)
+#endif
+#if !defined(ANDROID_JPEG_USE_VENUM) || defined(ANDROID_JPEG_DISABLE_VENUM_YCC_RGB_565)
     build_ycc_rgb_table(cinfo);
 #endif
 }
