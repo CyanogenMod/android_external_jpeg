@@ -50,7 +50,8 @@ LOCAL_SRC_FILES += asm/armv7/jdcolor-armv7.S
 LOCAL_SRC_FILES += asm/armv7/jdidct-armv7.S
 LOCAL_CFLAGS    += -DANDROID_JPEG_USE_VENUM
 else # ANDROID_JPEG_USE_VENUM, false
-LOCAL_SRC_FILES += jidctint.c jidctfst.S jidctred.c
+LOCAL_SRC_FILES += jidctint.c jidctred.c jidctfst.c armv6_idct.S
+LOCAL_CFLAGS    += -DANDROID_ARMV6_IDCT
 endif # ANDROID_JPEG_USE_VENUM
 endif
 
