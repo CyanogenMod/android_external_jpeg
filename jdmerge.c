@@ -894,6 +894,9 @@ jinit_merged_upsampler (j_decompress_ptr cinfo)
 #if !defined(ANDROID_JPEG_USE_VENUM)
     build_ycc_rgb_table(cinfo);
 #endif
+#ifdef NEEDS_ARM_ERRATA_754319_754320
+  asm volatile ( "vmov s0,s0\n" );
+#endif
 }
 
 #endif /* UPSAMPLE_MERGING_SUPPORTED */

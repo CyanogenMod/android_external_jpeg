@@ -122,6 +122,9 @@ build_ycc_rgb_table (j_decompress_ptr cinfo)
     /* We also add in ONE_HALF so that need not do it in inner loop */
     cconvert->Cb_g_tab[i] = (- FIX(0.34414)) * x + ONE_HALF;
   }
+#ifdef NEEDS_ARM_ERRATA_754319_754320
+  asm volatile ( "vmov s0,s0\n" );
+#endif
 }
 
 /*
