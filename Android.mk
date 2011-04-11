@@ -47,6 +47,7 @@ else
 ifeq ($(ANDROID_JPEG_USE_VENUM),true)
 LOCAL_SRC_FILES += jidctvenum.c
 LOCAL_SRC_FILES += asm/armv7/jdcolor-armv7.S
+LOCAL_SRC_FILES += asm/armv7/jdcolor-android-armv7.S
 LOCAL_SRC_FILES += asm/armv7/jdidct-armv7.S
 LOCAL_CFLAGS    += -DANDROID_JPEG_USE_VENUM
 else # ANDROID_JPEG_USE_VENUM, false
@@ -55,7 +56,7 @@ LOCAL_CFLAGS    += -DANDROID_ARMV6_IDCT
 endif # ANDROID_JPEG_USE_VENUM
 endif
 
-LOCAL_CFLAGS += -DAVOID_TABLES 
+LOCAL_CFLAGS += -DAVOID_TABLES
 LOCAL_CFLAGS += -O3 -fstrict-aliasing -fprefetch-loop-arrays
 
 # enable tile based decode
