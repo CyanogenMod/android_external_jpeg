@@ -1310,6 +1310,11 @@ jinit_marker_reader (j_decompress_ptr cinfo)
   marker->pub.read_markers = read_markers;
   marker->pub.read_restart_marker = read_restart_marker;
   marker->pub.get_sos_marker_position = get_sos_marker_position;
+
+  // Initialize the SOS marker position to avoid underdefined behavior due to
+  // using a undefined field.
+  marker->pub.current_sos_marker_position = 0;
+
   /* Initialize COM/APPn processing.
    * By default, we examine and then discard APP0 and APP14,
    * but simply discard COM and all other APPn.
