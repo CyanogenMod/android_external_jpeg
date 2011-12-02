@@ -2,6 +2,7 @@
  * jpegint.h
  *
  * Copyright (C) 1991-1997, Thomas G. Lane.
+ * Copyright (c) 2010, Code Aurora Forum. All rights reserved.
  * This file is part of the Independent JPEG Group's software.
  * For conditions of distribution and use, see the accompanying README file.
  *
@@ -290,6 +291,48 @@ struct jpeg_color_quantizer {
   JMETHOD(void, new_color_map, (j_decompress_ptr cinfo));
 };
 
+#ifdef ANDROID_JPEG_USE_VENUM
+
+/* IDCT routines */
+EXTERN (void) idct_1x1_venum (INT16 * coeffPtr, INT16 * samplePtr, INT32 stride);
+EXTERN (void) idct_2x2_venum (INT16 * coeffPtr, INT16 * samplePtr, INT32 stride);
+EXTERN (void) idct_4x4_venum (INT16 * coeffPtr, INT16 * samplePtr, INT32 stride);
+EXTERN (void) idct_8x8_venum (INT16 * coeffPtr, INT16 * samplePtr, INT32 stride);
+
+#ifndef ANDROID_JPEG_DISABLE_VENUM_YCC_RGB_565
+/* Color conversion routines */
+EXTERN (void) yvup2rgb565_venum (UINT8 *pLumaLine,
+                UINT8 *pCrLine,
+                UINT8 *pCbLine,
+                UINT8 *pRGB565Line,
+                JDIMENSION nLineWidth);
+EXTERN (void) yyvup2rgb565_venum (UINT8 * pLumaLine,
+                UINT8 *pCrLine,
+                UINT8 *pCbLine,
+                UINT8 * pRGB565Line,
+                JDIMENSION nLineWidth);
+#endif
+EXTERN (void) yvup2bgr888_venum (UINT8 * pLumaLine,
+                UINT8 *pCrLine,
+                UINT8 *pCbLine,
+                UINT8 * pBGR888Line,
+                JDIMENSION nLineWidth);
+EXTERN (void) yyvup2bgr888_venum (UINT8 * pLumaLine,
+                UINT8 *pCrLine,
+                UINT8 *pCbLine,
+                UINT8 * pBGR888Line,
+                JDIMENSION nLineWidth);
+EXTERN (void) yvup2abgr8888_venum (UINT8 * pLumaLine,
+                UINT8 *pCrLine,
+                UINT8 *pCbLine,
+                UINT8 * pABGR888Line,
+                JDIMENSION nLineWidth);
+EXTERN (void) yyvup2abgr8888_venum (UINT8 * pLumaLine,
+                UINT8 *pCrLine,
+                UINT8 *pCbLine,
+                UINT8 * pABGR888Line,
+                JDIMENSION nLineWidth);
+#endif
 
 /* Miscellaneous useful macros */
 
