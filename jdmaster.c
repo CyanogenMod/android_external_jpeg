@@ -2,6 +2,7 @@
  * jdmaster.c
  *
  * Copyright (C) 1991-1997, Thomas G. Lane.
+ * Copyright (C) 2009-2010, D. R. Commander.
  * This file is part of the Independent JPEG Group's software.
  * For conditions of distribution and use, see the accompanying README file.
  *
@@ -14,6 +15,7 @@
 #define JPEG_INTERNALS
 #include "jinclude.h"
 #include "jpeglib.h"
+#include "jpegcomp.h"
 
 
 /* Private state */
@@ -47,24 +49,28 @@ use_merged_upsample (j_decompress_ptr cinfo)
   /* Merging is the equivalent of plain box-filter upsampling */
   if (cinfo->do_fancy_upsampling || cinfo->CCIR601_sampling)
     return FALSE;
-
 #ifdef ANDROID_RGB
   /* jdmerge.c only supports YCC=>RGB565 and YCC=>RGB color conversion */
-  if (cinfo->jpeg_color_space != JCS_YCbCr || 
+  if (cinfo->jpeg_color_space != JCS_YCbCr ||
       cinfo->num_components != 3 ||
       cinfo->out_color_components != 3 ||
-      (cinfo->out_color_space != JCS_RGB_565 && 
+      (cinfo->out_color_space != JCS_RGB_565 &&
          cinfo->out_color_space != JCS_RGB)) {
     return FALSE;
   }
 #else
   /* jdmerge.c only supports YCC=>RGB color conversion */
   if (cinfo->jpeg_color_space != JCS_YCbCr || cinfo->num_components != 3 ||
-      cinfo->out_color_space != JCS_RGB ||
-      cinfo->out_color_components != RGB_PIXELSIZE)
+      (cinfo->out_color_space != JCS_RGB &&
+      cinfo->out_color_space != JCS_EXT_RGB &&
+      cinfo->out_color_space != JCS_EXT_RGBX &&
+      cinfo->out_color_space != JCS_EXT_BGR &&
+      cinfo->out_color_space != JCS_EXT_BGRX &&
+      cinfo->out_color_space != JCS_EXT_XBGR &&
+      cinfo->out_color_space != JCS_EXT_XRGB) ||
+      cinfo->out_color_components != rgb_pixelsize[cinfo->out_color_space])
     return FALSE;
-#endif
-
+#endif /* ANDROID_RGB */
   /* and it only handles 2h1v or 2h2v sampling ratios */
   if (cinfo->comp_info[0].h_samp_factor != 2 ||
       cinfo->comp_info[1].h_samp_factor != 1 ||
@@ -74,9 +80,9 @@ use_merged_upsample (j_decompress_ptr cinfo)
       cinfo->comp_info[2].v_samp_factor != 1)
     return FALSE;
   /* furthermore, it doesn't work if we've scaled the IDCTs differently */
-  if (cinfo->comp_info[0].DCT_scaled_size != cinfo->min_DCT_scaled_size ||
-      cinfo->comp_info[1].DCT_scaled_size != cinfo->min_DCT_scaled_size ||
-      cinfo->comp_info[2].DCT_scaled_size != cinfo->min_DCT_scaled_size)
+  if (cinfo->comp_info[0]._DCT_scaled_size != cinfo->_min_DCT_scaled_size ||
+      cinfo->comp_info[1]._DCT_scaled_size != cinfo->_min_DCT_scaled_size ||
+      cinfo->comp_info[2]._DCT_scaled_size != cinfo->_min_DCT_scaled_size)
     return FALSE;
   /* ??? also need to test for upsample-time rescaling, when & if supported */
   return TRUE;			/* by golly, it'll work... */
@@ -106,7 +112,7 @@ jpeg_calc_output_dimensions (j_decompress_ptr cinfo)
 #if ANDROID_TILE_BASED_DECODE
   // Tile based decoding may call this function several times.
   if (!cinfo->tile_decode)
-#endif
+#endif /* ANDROID_TILE_BASED_DECODE */
     if (cinfo->global_state != DSTATE_READY)
       ERREXIT1(cinfo, JERR_BAD_STATE, cinfo->global_state);
 
@@ -119,26 +125,42 @@ jpeg_calc_output_dimensions (j_decompress_ptr cinfo)
       jdiv_round_up((long) cinfo->image_width, 8L);
     cinfo->output_height = (JDIMENSION)
       jdiv_round_up((long) cinfo->image_height, 8L);
+#if JPEG_LIB_VERSION >= 70
+    cinfo->min_DCT_h_scaled_size = cinfo->min_DCT_v_scaled_size = 1;
+#else
     cinfo->min_DCT_scaled_size = 1;
+#endif
   } else if (cinfo->scale_num * 4 <= cinfo->scale_denom) {
     /* Provide 1/4 scaling */
     cinfo->output_width = (JDIMENSION)
       jdiv_round_up((long) cinfo->image_width, 4L);
     cinfo->output_height = (JDIMENSION)
       jdiv_round_up((long) cinfo->image_height, 4L);
+#if JPEG_LIB_VERSION >= 70
+    cinfo->min_DCT_h_scaled_size = cinfo->min_DCT_v_scaled_size = 2;
+#else
     cinfo->min_DCT_scaled_size = 2;
+#endif
   } else if (cinfo->scale_num * 2 <= cinfo->scale_denom) {
     /* Provide 1/2 scaling */
     cinfo->output_width = (JDIMENSION)
       jdiv_round_up((long) cinfo->image_width, 2L);
     cinfo->output_height = (JDIMENSION)
       jdiv_round_up((long) cinfo->image_height, 2L);
+#if JPEG_LIB_VERSION >= 70
+    cinfo->min_DCT_h_scaled_size = cinfo->min_DCT_v_scaled_size = 4;
+#else
     cinfo->min_DCT_scaled_size = 4;
+#endif
   } else {
     /* Provide 1/1 scaling */
     cinfo->output_width = cinfo->image_width;
     cinfo->output_height = cinfo->image_height;
+#if JPEG_LIB_VERSION >= 70
+    cinfo->min_DCT_h_scaled_size = cinfo->min_DCT_v_scaled_size = DCTSIZE;
+#else
     cinfo->min_DCT_scaled_size = DCTSIZE;
+#endif
   }
   /* In selecting the actual DCT scaling for each component, we try to
    * scale up the chroma components via IDCT scaling rather than upsampling.
@@ -147,15 +169,19 @@ jpeg_calc_output_dimensions (j_decompress_ptr cinfo)
    */
   for (ci = 0, compptr = cinfo->comp_info; ci < cinfo->num_components;
        ci++, compptr++) {
-    int ssize = cinfo->min_DCT_scaled_size;
+    int ssize = cinfo->_min_DCT_scaled_size;
     while (ssize < DCTSIZE &&
 	   (compptr->h_samp_factor * ssize * 2 <=
-	    cinfo->max_h_samp_factor * cinfo->min_DCT_scaled_size) &&
+	    cinfo->max_h_samp_factor * cinfo->_min_DCT_scaled_size) &&
 	   (compptr->v_samp_factor * ssize * 2 <=
-	    cinfo->max_v_samp_factor * cinfo->min_DCT_scaled_size)) {
+	    cinfo->max_v_samp_factor * cinfo->_min_DCT_scaled_size)) {
       ssize = ssize * 2;
     }
+#if JPEG_LIB_VERSION >= 70
+    compptr->DCT_h_scaled_size = compptr->DCT_v_scaled_size = ssize;
+#else
     compptr->DCT_scaled_size = ssize;
+#endif
   }
 
   /* Recompute downsampled dimensions of components;
@@ -166,11 +192,11 @@ jpeg_calc_output_dimensions (j_decompress_ptr cinfo)
     /* Size in samples, after IDCT scaling */
     compptr->downsampled_width = (JDIMENSION)
       jdiv_round_up((long) cinfo->image_width *
-		    (long) (compptr->h_samp_factor * compptr->DCT_scaled_size),
+		    (long) (compptr->h_samp_factor * compptr->_DCT_scaled_size),
 		    (long) (cinfo->max_h_samp_factor * DCTSIZE));
     compptr->downsampled_height = (JDIMENSION)
       jdiv_round_up((long) cinfo->image_height *
-		    (long) (compptr->v_samp_factor * compptr->DCT_scaled_size),
+		    (long) (compptr->v_samp_factor * compptr->_DCT_scaled_size),
 		    (long) (cinfo->max_v_samp_factor * DCTSIZE));
   }
 
@@ -192,21 +218,25 @@ jpeg_calc_output_dimensions (j_decompress_ptr cinfo)
     cinfo->out_color_components = 1;
     break;
   case JCS_RGB:
-#if RGB_PIXELSIZE != 3
-    cinfo->out_color_components = RGB_PIXELSIZE;
+  case JCS_EXT_RGB:
+  case JCS_EXT_RGBX:
+  case JCS_EXT_BGR:
+  case JCS_EXT_BGRX:
+  case JCS_EXT_XBGR:
+  case JCS_EXT_XRGB:
+    cinfo->out_color_components = rgb_pixelsize[cinfo->out_color_space];
     break;
-#endif /* else share code with YCbCr */
 #ifdef ANDROID_RGB
   case JCS_RGB_565:
-#endif
+#endif /* ANDROID_RGB */
   case JCS_YCbCr:
     cinfo->out_color_components = 3;
     break;
-  case JCS_CMYK:
-  case JCS_YCCK:
 #ifdef ANDROID_RGB
   case JCS_RGBA_8888:
 #endif
+  case JCS_CMYK:
+  case JCS_YCCK:
     cinfo->out_color_components = 4;
     break;
   default:			/* else must be same colorspace as in file */
@@ -240,7 +270,7 @@ jpeg_calc_output_dimensions (j_decompress_ptr cinfo)
  * For most steps we can mathematically guarantee that the initial value
  * of x is within MAXJSAMPLE+1 of the legal range, so a table running from
  * -(MAXJSAMPLE+1) to 2*MAXJSAMPLE+1 is sufficient.  But for the initial
- * limiting step (just after the IDCT), a wildly out-of-range value is
+ * limiting step (just after the IDCT), a wildly out-of-range value is 
  * possible if the input data is corrupt.  To avoid any chance of indexing
  * off the end of memory and getting a bad-pointer trap, we perform the
  * post-IDCT limiting thus:
@@ -396,7 +426,11 @@ master_selection (j_decompress_ptr cinfo)
   jinit_inverse_dct(cinfo);
   /* Entropy decoding: either Huffman or arithmetic coding. */
   if (cinfo->arith_code) {
+#ifdef D_ARITH_CODING_SUPPORTED
+    jinit_arith_decoder(cinfo);
+#else
     ERREXIT(cinfo, JERR_ARITH_NOTIMPL);
+#endif
   } else {
     if (cinfo->progressive_mode) {
 #ifdef D_PROGRESSIVE_SUPPORTED

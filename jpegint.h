@@ -2,6 +2,7 @@
  * jpegint.h
  *
  * Copyright (C) 1991-1997, Thomas G. Lane.
+ * Modified 1997-2009 by Guido Vollbeding.
  * This file is part of the Independent JPEG Group's software.
  * For conditions of distribution and use, see the accompanying README file.
  *
@@ -145,10 +146,6 @@ struct jpeg_decomp_master {
 /* Input control module */
 struct jpeg_input_controller {
   JMETHOD(int, consume_input, (j_decompress_ptr cinfo));
-  JMETHOD(int, consume_input_build_huffman_index, (j_decompress_ptr cinfo,
-                    huffman_index *index, int scan_count));
-  JMETHOD(int, consume_markers, (j_decompress_ptr cinfo,
-                    huffman_index *index, int scan_count));
   JMETHOD(void, reset_input_controller, (j_decompress_ptr cinfo));
   JMETHOD(void, start_input_pass, (j_decompress_ptr cinfo));
   JMETHOD(void, finish_input_pass, (j_decompress_ptr cinfo));
@@ -156,6 +153,13 @@ struct jpeg_input_controller {
   /* State variables made visible to other modules */
   boolean has_multiple_scans;	/* True if file has multiple scans */
   boolean eoi_reached;		/* True when EOI has been consumed */
+
+#ifdef ANDROID
+  JMETHOD(int, consume_input_build_huffman_index, (j_decompress_ptr cinfo,
+                    huffman_index *index, int scan_count));
+  JMETHOD(int, consume_markers, (j_decompress_ptr cinfo,
+                    huffman_index *index, int scan_count));
+#endif
 };
 
 /* Main buffer control (downsampled-data buffer) */
@@ -170,27 +174,32 @@ struct jpeg_d_main_controller {
 struct jpeg_d_coef_controller {
   JMETHOD(void, start_input_pass, (j_decompress_ptr cinfo));
   JMETHOD(int, consume_data, (j_decompress_ptr cinfo));
-  JMETHOD(int, consume_data_build_huffman_index, (j_decompress_ptr cinfo,
-                    huffman_index* index, int scan_count));
   JMETHOD(void, start_output_pass, (j_decompress_ptr cinfo));
   JMETHOD(int, decompress_data, (j_decompress_ptr cinfo,
 				 JSAMPIMAGE output_buf));
+
   /* Pointer to array of coefficient virtual arrays, or NULL if none */
   jvirt_barray_ptr *coef_arrays;
 
-  /* column number of the first and last tile, respectively */
-  int column_left_boundary;
-  int column_right_boundary;
+#ifdef ANDROID
+  JMETHOD(int, consume_data_build_huffman_index, (j_decompress_ptr cinfo,
+                    huffman_index* index, int scan_count));
 
-  /* column number of the first and last MCU, respectively */
-  int MCU_column_left_boundary;
-  int MCU_column_right_boundary;
+ /* column number of the first and last tile, respectively */
+ int column_left_boundary;
+ int column_right_boundary;
 
-  /* the number of MCU columns to skip from the indexed MCU, iM,
-   * to the requested MCU boundary, rM, where iM is the MCU that we sample
-   * into our index and is the nearest one to the left of rM.
-   */
-  int MCU_columns_to_skip;
+ /* column number of the first and last MCU, respectively */
+ int MCU_column_left_boundary;
+ int MCU_column_right_boundary;
+
+ /* the number of MCU columns to skip from the indexed MCU, iM,
+  * to the requested MCU boundary, rM, where iM is the MCU that we sample
+  * into our index and is the nearest one to the left of rM.
+  */
+ int MCU_columns_to_skip;
+
+#endif
 };
 
 /* Decompression postprocessing (color quantization buffer control) */
@@ -213,8 +222,6 @@ struct jpeg_marker_reader {
    * JPEG_SUSPENDED, JPEG_REACHED_SOS, or JPEG_REACHED_EOI.
    */
   JMETHOD(int, read_markers, (j_decompress_ptr cinfo));
-  JMETHOD(void, get_sos_marker_position, (j_decompress_ptr cinfo,
-                    huffman_index *index));
   /* Read a restart marker --- exported for use by entropy decoder only */
   jpeg_marker_parser_method read_restart_marker;
 
@@ -224,8 +231,14 @@ struct jpeg_marker_reader {
   boolean saw_SOI;		/* found SOI? */
   boolean saw_SOF;		/* found SOF? */
   int next_restart_num;		/* next restart number expected (0-7) */
-  int current_sos_marker_position;
   unsigned int discarded_bytes;	/* # of bytes skipped looking for a marker */
+
+#ifdef ANDROID
+  JMETHOD(void, get_sos_marker_position, (j_decompress_ptr cinfo,
+                   huffman_index *index));
+ 
+  int current_sos_marker_position;
+#endif
 };
 
 /* Entropy decoding */
@@ -233,17 +246,20 @@ struct jpeg_entropy_decoder {
   JMETHOD(void, start_pass, (j_decompress_ptr cinfo));
   JMETHOD(boolean, decode_mcu, (j_decompress_ptr cinfo,
 				JBLOCKROW *MCU_data));
+
+  /* This is here to share code between baseline and progressive decoders; */
+  /* other modules probably should not use it */
+  boolean insufficient_data;	/* set TRUE after emitting warning */
+
+#ifdef ANDROID
   JMETHOD(boolean, decode_mcu_discard_coef, (j_decompress_ptr cinfo));
   JMETHOD(void, configure_huffman_decoder, (j_decompress_ptr cinfo,
                     huffman_offset_data offset));
   JMETHOD(void, get_huffman_decoder_configuration, (j_decompress_ptr cinfo,
                     huffman_offset_data *offset));
 
-  /* This is here to share code between baseline and progressive decoders; */
-  /* other modules probably should not use it */
-  boolean insufficient_data;	/* set TRUE after emitting warning */
-
   huffman_index *index;
+#endif
 };
 
 /* Inverse DCT (also performs dequantization) */
@@ -291,6 +307,46 @@ struct jpeg_color_quantizer {
 };
 
 
+#ifdef ANDROID_JPEG_USE_VENUM
+/* IDCT routines */
+EXTERN (void) idct_1x1_venum (INT16 * coeffPtr, INT16 * samplePtr, INT32 stride);
+EXTERN (void) idct_2x2_venum (INT16 * coeffPtr, INT16 * samplePtr, INT32 stride);
+EXTERN (void) idct_4x4_venum (INT16 * coeffPtr, INT16 * samplePtr, INT32 stride);
+EXTERN (void) idct_8x8_venum (INT16 * coeffPtr, INT16 * samplePtr, INT32 stride);
+
+/* Color conversion routines */
+EXTERN (void) yvup2rgb565_venum (UINT8 *pLumaLine,
+                UINT8 *pCrLine,
+                UINT8 *pCbLine,
+                UINT8 *pRGB565Line,
+                JDIMENSION nLineWidth);
+EXTERN (void) yyvup2rgb565_venum (UINT8 * pLumaLine,
+                UINT8 *pCrLine,
+                UINT8 *pCbLine,
+                UINT8 * pRGB565Line,
+                JDIMENSION nLineWidth);
+EXTERN (void) yvup2bgr888_venum (UINT8 * pLumaLine,
+                UINT8 *pCrLine,
+                UINT8 *pCbLine,
+                UINT8 * pBGR888Line,
+                JDIMENSION nLineWidth);
+EXTERN (void) yyvup2bgr888_venum (UINT8 * pLumaLine,
+                UINT8 *pCrLine,
+                UINT8 *pCbLine,
+                UINT8 * pBGR888Line,
+                JDIMENSION nLineWidth);
+EXTERN (void) yvup2abgr8888_venum (UINT8 * pLumaLine,
+                UINT8 *pCrLine,
+                UINT8 *pCbLine,
+                UINT8 * pABGR888Line,
+                JDIMENSION nLineWidth);
+EXTERN (void) yyvup2abgr8888_venum (UINT8 * pLumaLine,
+                UINT8 *pCrLine,
+                UINT8 *pCbLine,
+                UINT8 * pABGR888Line,
+                JDIMENSION nLineWidth);
+#endif
+
 /* Miscellaneous useful macros */
 
 #undef MAX
@@ -334,6 +390,7 @@ struct jpeg_color_quantizer {
 #define jinit_forward_dct	jIFDCT
 #define jinit_huff_encoder	jIHEncoder
 #define jinit_phuff_encoder	jIPHEncoder
+#define jinit_arith_encoder	jIAEncoder
 #define jinit_marker_writer	jIMWriter
 #define jinit_master_decompress	jIDMaster
 #define jinit_d_main_controller	jIDMainC
@@ -343,6 +400,7 @@ struct jpeg_color_quantizer {
 #define jinit_marker_reader	jIMReader
 #define jinit_huff_decoder	jIHDecoder
 #define jinit_phuff_decoder	jIPHDecoder
+#define jinit_arith_decoder	jIADecoder
 #define jinit_inverse_dct	jIIDCT
 #define jinit_upsampler		jIUpsampler
 #define jinit_color_deconverter	jIDColor
@@ -357,6 +415,7 @@ struct jpeg_color_quantizer {
 #define jzero_far		jZeroFar
 #define jpeg_zigzag_order	jZIGTable
 #define jpeg_natural_order	jZAGTable
+#define jpeg_aritab		jAriTab
 #endif /* NEED_SHORT_EXTERNAL_NAMES */
 
 
@@ -375,6 +434,7 @@ EXTERN(void) jinit_downsampler JPP((j_compress_ptr cinfo));
 EXTERN(void) jinit_forward_dct JPP((j_compress_ptr cinfo));
 EXTERN(void) jinit_huff_encoder JPP((j_compress_ptr cinfo));
 EXTERN(void) jinit_phuff_encoder JPP((j_compress_ptr cinfo));
+EXTERN(void) jinit_arith_encoder JPP((j_compress_ptr cinfo));
 EXTERN(void) jinit_marker_writer JPP((j_compress_ptr cinfo));
 /* Decompression module initialization routines */
 EXTERN(void) jinit_master_decompress JPP((j_decompress_ptr cinfo));
@@ -387,15 +447,20 @@ EXTERN(void) jinit_d_post_controller JPP((j_decompress_ptr cinfo,
 EXTERN(void) jinit_input_controller JPP((j_decompress_ptr cinfo));
 EXTERN(void) jinit_marker_reader JPP((j_decompress_ptr cinfo));
 EXTERN(void) jinit_huff_decoder JPP((j_decompress_ptr cinfo));
-EXTERN(void) jinit_huff_decoder_no_data JPP((j_decompress_ptr cinfo));
 EXTERN(void) jinit_phuff_decoder JPP((j_decompress_ptr cinfo));
+EXTERN(void) jinit_arith_decoder JPP((j_decompress_ptr cinfo));
 EXTERN(void) jinit_inverse_dct JPP((j_decompress_ptr cinfo));
 EXTERN(void) jinit_upsampler JPP((j_decompress_ptr cinfo));
 EXTERN(void) jinit_color_deconverter JPP((j_decompress_ptr cinfo));
 EXTERN(void) jinit_1pass_quantizer JPP((j_decompress_ptr cinfo));
 EXTERN(void) jinit_2pass_quantizer JPP((j_decompress_ptr cinfo));
 EXTERN(void) jinit_merged_upsampler JPP((j_decompress_ptr cinfo));
+
+#ifdef ANDROID
+EXTERN(void) jinit_huff_decoder_no_data JPP((j_decompress_ptr cinfo));
 EXTERN(void) jpeg_decompress_per_scan_setup (j_decompress_ptr cinfo);
+#endif
+
 /* Memory manager initialization */
 EXTERN(void) jinit_memory_mgr JPP((j_common_ptr cinfo));
 
@@ -409,18 +474,21 @@ EXTERN(void) jcopy_sample_rows JPP((JSAMPARRAY input_array, int source_row,
 EXTERN(void) jcopy_block_row JPP((JBLOCKROW input_row, JBLOCKROW output_row,
 				  JDIMENSION num_blocks));
 EXTERN(void) jzero_far JPP((void FAR * target, size_t bytestozero));
-
 EXTERN(void) jset_input_stream_position JPP((j_decompress_ptr cinfo,
                     int offset));
 EXTERN(void) jset_input_stream_position_bit JPP((j_decompress_ptr cinfo,
                     int byte_offset, int bit_left, INT32 buf));
 
 EXTERN(int) jget_input_stream_position JPP((j_decompress_ptr cinfo));
+
 /* Constant tables in jutils.c */
 #if 0				/* This table is not actually needed in v6a */
 extern const int jpeg_zigzag_order[]; /* natural coef order to zigzag order */
 #endif
 extern const int jpeg_natural_order[]; /* zigzag coef order to natural order */
+
+/* Arithmetic coding probability estimation tables in jaricom.c */
+extern const INT32 jpeg_aritab[];
 
 /* Suppress undefined-structure complaints if necessary. */
 

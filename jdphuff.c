@@ -83,6 +83,22 @@ METHODDEF(boolean) decode_mcu_DC_refine JPP((j_decompress_ptr cinfo,
 METHODDEF(boolean) decode_mcu_AC_refine JPP((j_decompress_ptr cinfo,
 					     JBLOCKROW *MCU_data));
 
+#ifdef ANDROID
+METHODDEF(void)
+configure_huffman_decoder(j_decompress_ptr cinfo, huffman_offset_data offset);
+
+METHODDEF(void)
+get_huffman_decoder_configuration(j_decompress_ptr cinfo,
+        huffman_offset_data *offset);
+
+GLOBAL(void)
+jpeg_configure_huffman_decoder_progressive(j_decompress_ptr cinfo,
+        huffman_offset_data offset);
+GLOBAL(void)
+jpeg_get_huffman_decoder_configuration_progressive(j_decompress_ptr cinfo,
+        huffman_offset_data *offset);
+#endif
+
 /*
  * Initialize for a Huffman-compressed scan.
  */
@@ -631,6 +647,46 @@ undoit:
   return FALSE;
 }
 
+
+/*
+ * Module initialization routine for progressive Huffman entropy decoding.
+ */
+
+GLOBAL(void)
+jinit_phuff_decoder (j_decompress_ptr cinfo)
+{
+  phuff_entropy_ptr entropy;
+  int *coef_bit_ptr;
+  int ci, i;
+
+  entropy = (phuff_entropy_ptr)
+    (*cinfo->mem->alloc_small) ((j_common_ptr) cinfo, JPOOL_IMAGE,
+				SIZEOF(phuff_entropy_decoder));
+  cinfo->entropy = (struct jpeg_entropy_decoder *) entropy;
+  entropy->pub.start_pass = start_pass_phuff_decoder;
+#ifdef ANDROID
+  entropy->pub.configure_huffman_decoder = configure_huffman_decoder;
+  entropy->pub.get_huffman_decoder_configuration =
+        get_huffman_decoder_configuration;
+#endif /* ANDROID */
+
+  /* Mark derived tables unallocated */
+  for (i = 0; i < NUM_HUFF_TBLS; i++) {
+    entropy->derived_tbls[i] = NULL;
+  }
+
+  /* Create progression status table */
+  cinfo->coef_bits = (int (*)[DCTSIZE2])
+    (*cinfo->mem->alloc_small) ((j_common_ptr) cinfo, JPOOL_IMAGE,
+				cinfo->num_components*DCTSIZE2*SIZEOF(int));
+  coef_bit_ptr = & cinfo->coef_bits[0][0];
+  for (ci = 0; ci < cinfo->num_components; ci++) 
+    for (i = 0; i < DCTSIZE2; i++)
+      *coef_bit_ptr++ = -1;
+}
+
+#ifdef ANDROID
+
 /*
  * Save the current Huffman deocde position and the DC coefficients
  * for each component into bitstream_offset and dc_info[], respectively.
@@ -647,7 +703,6 @@ get_huffman_decoder_configuration(j_decompress_ptr cinfo,
     offset->prev_dc[i] = entropy->saved.last_dc_val[i];
 }
 
-
 /*
  * Save the current Huffman decoder position and the bit buffer
  * into bitstream_offset and get_buffer, respectively.
@@ -662,7 +717,7 @@ jpeg_get_huffman_decoder_configuration_progressive(j_decompress_ptr cinfo,
     // We are at the end of a data segment
     if (entropy->restarts_to_go == 0)
       if (! process_restart(cinfo))
-	return;
+       return;
   }
 
   // Save restarts_to_go and next_restart_num.
@@ -699,7 +754,7 @@ GLOBAL(void)
 jpeg_configure_huffman_decoder_progressive(j_decompress_ptr cinfo,
         huffman_offset_data offset)
 {
-	phuff_entropy_ptr entropy = (phuff_entropy_ptr) cinfo->entropy;
+       phuff_entropy_ptr entropy = (phuff_entropy_ptr) cinfo->entropy;
 
   // Restore restarts_to_go and next_restart_num
   cinfo->unread_marker = 0;
@@ -735,38 +790,6 @@ jpeg_configure_huffman_index_scan(j_decompress_ptr cinfo,
   index->scan[scan_no].bitstream_offset = offset;
 }
 
-/*
- * Module initialization routine for progressive Huffman entropy decoding.
- */
-GLOBAL(void)
-jinit_phuff_decoder (j_decompress_ptr cinfo)
-{
-  phuff_entropy_ptr entropy;
-  int *coef_bit_ptr;
-  int ci, i;
-
-  entropy = (phuff_entropy_ptr)
-    (*cinfo->mem->alloc_small) ((j_common_ptr) cinfo, JPOOL_IMAGE,
-				SIZEOF(phuff_entropy_decoder));
-  cinfo->entropy = (struct jpeg_entropy_decoder *) entropy;
-  entropy->pub.start_pass = start_pass_phuff_decoder;
-  entropy->pub.configure_huffman_decoder = configure_huffman_decoder;
-  entropy->pub.get_huffman_decoder_configuration =
-        get_huffman_decoder_configuration;
-
-  /* Mark derived tables unallocated */
-  for (i = 0; i < NUM_HUFF_TBLS; i++) {
-    entropy->derived_tbls[i] = NULL;
-  }
-
-  /* Create progression status table */
-  cinfo->coef_bits = (int (*)[DCTSIZE2])
-    (*cinfo->mem->alloc_small) ((j_common_ptr) cinfo, JPOOL_IMAGE,
-				cinfo->num_components*DCTSIZE2*SIZEOF(int));
-  coef_bit_ptr = & cinfo->coef_bits[0][0];
-  for (ci = 0; ci < cinfo->num_components; ci++) 
-    for (i = 0; i < DCTSIZE2; i++)
-      *coef_bit_ptr++ = -1;
-}
+#endif /* ANDROID */
 
 #endif /* D_PROGRESSIVE_SUPPORTED */
