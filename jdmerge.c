@@ -2,6 +2,8 @@
  * jdmerge.c
  *
  * Copyright (C) 1994-1996, Thomas G. Lane.
+ * Copyright 2009 Pierre Ossman <ossman@cendio.se> for Cendio AB
+ * Copyright (C) 2009, D. R. Commander.
  * This file is part of the Independent JPEG Group's software.
  * For conditions of distribution and use, see the accompanying README file.
  *
@@ -35,13 +37,14 @@
 #define JPEG_INTERNALS
 #include "jinclude.h"
 #include "jpeglib.h"
+#include "jsimd.h"
 
 #ifdef UPSAMPLE_MERGING_SUPPORTED
 
 #ifdef ANDROID_RGB
 
 /* Declarations for ordered dithering.
- * 
+ *
  * We use 4x4 ordered dither array packed into 32 bits. This array is
  * sufficent for dithering RGB_888 to RGB_565.
  */
@@ -55,7 +58,7 @@ static const INT32 dither_matrix[4] = {
   0x0F070D05
 };
 
-#endif
+#endif /* ANDROID_RGB */
 
 /* Private subobject */
 
@@ -172,14 +175,14 @@ merged_2v_upsample (j_decompress_ptr cinfo,
 
   if (upsample->spare_full) {
     /* If we have a spare row saved from a previous cycle, just return it. */
-      JDIMENSION size = upsample->out_row_width;
+    JDIMENSION size = upsample->out_row_width;
 #ifdef ANDROID_RGB
     if (cinfo->out_color_space == JCS_RGB_565)
       size = cinfo->output_width*2;
 #endif
+
     jcopy_sample_rows(& upsample->spare_row, 0, output_buf + *out_row_ctr, 0,
 		      1, size);
-
     num_rows = 1;
     upsample->spare_full = FALSE;
   } else {
@@ -279,15 +282,15 @@ h2v1_merged_upsample (j_decompress_ptr cinfo,
     cblue = Cbbtab[cb];
     /* Fetch 2 Y values and emit 2 pixels */
     y  = GETJSAMPLE(*inptr0++);
-    outptr[RGB_RED] = range_limit[y + cred];
-    outptr[RGB_GREEN] = range_limit[y + cgreen];
-    outptr[RGB_BLUE] = range_limit[y + cblue];
-    outptr += RGB_PIXELSIZE;
+    outptr[rgb_red[cinfo->out_color_space]] =   range_limit[y + cred];
+    outptr[rgb_green[cinfo->out_color_space]] = range_limit[y + cgreen];
+    outptr[rgb_blue[cinfo->out_color_space]] =  range_limit[y + cblue];
+    outptr += rgb_pixelsize[cinfo->out_color_space];
     y  = GETJSAMPLE(*inptr0++);
-    outptr[RGB_RED] = range_limit[y + cred];
-    outptr[RGB_GREEN] = range_limit[y + cgreen];
-    outptr[RGB_BLUE] = range_limit[y + cblue];
-    outptr += RGB_PIXELSIZE;
+    outptr[rgb_red[cinfo->out_color_space]] =   range_limit[y + cred];
+    outptr[rgb_green[cinfo->out_color_space]] = range_limit[y + cgreen];
+    outptr[rgb_blue[cinfo->out_color_space]] =  range_limit[y + cblue];
+    outptr += rgb_pixelsize[cinfo->out_color_space];
   }
   /* If image width is odd, do the last output column separately */
   if (cinfo->output_width & 1) {
@@ -297,18 +300,115 @@ h2v1_merged_upsample (j_decompress_ptr cinfo,
     cgreen = (int) RIGHT_SHIFT(Cbgtab[cb] + Crgtab[cr], SCALEBITS);
     cblue = Cbbtab[cb];
     y  = GETJSAMPLE(*inptr0);
-    outptr[RGB_RED] = range_limit[y + cred];
-    outptr[RGB_GREEN] = range_limit[y + cgreen];
-    outptr[RGB_BLUE] = range_limit[y + cblue];
+    outptr[rgb_red[cinfo->out_color_space]] =   range_limit[y + cred];
+    outptr[rgb_green[cinfo->out_color_space]] = range_limit[y + cgreen];
+    outptr[rgb_blue[cinfo->out_color_space]] =  range_limit[y + cblue];
   }
 }
 
+
+/*
+ * Upsample and color convert for the case of 2:1 horizontal and 2:1 vertical.
+ */
+
+METHODDEF(void)
+h2v2_merged_upsample (j_decompress_ptr cinfo,
+		      JSAMPIMAGE input_buf, JDIMENSION in_row_group_ctr,
+		      JSAMPARRAY output_buf)
+{
+  my_upsample_ptr upsample = (my_upsample_ptr) cinfo->upsample;
+  register int y, cred, cgreen, cblue;
+  int cb, cr;
+  register JSAMPROW outptr0, outptr1;
+  JSAMPROW inptr00, inptr01, inptr1, inptr2;
+  JDIMENSION col;
+  /* copy these pointers into registers if possible */
+  register JSAMPLE * range_limit = cinfo->sample_range_limit;
+  int * Crrtab = upsample->Cr_r_tab;
+  int * Cbbtab = upsample->Cb_b_tab;
+  INT32 * Crgtab = upsample->Cr_g_tab;
+  INT32 * Cbgtab = upsample->Cb_g_tab;
+  SHIFT_TEMPS
+
+  inptr00 = input_buf[0][in_row_group_ctr*2];
+  inptr01 = input_buf[0][in_row_group_ctr*2 + 1];
+  inptr1 = input_buf[1][in_row_group_ctr];
+  inptr2 = input_buf[2][in_row_group_ctr];
+  outptr0 = output_buf[0];
+  outptr1 = output_buf[1];
+  /* Loop for each group of output pixels */
+  for (col = cinfo->output_width >> 1; col > 0; col--) {
+    /* Do the chroma part of the calculation */
+    cb = GETJSAMPLE(*inptr1++);
+    cr = GETJSAMPLE(*inptr2++);
+    cred = Crrtab[cr];
+    cgreen = (int) RIGHT_SHIFT(Cbgtab[cb] + Crgtab[cr], SCALEBITS);
+    cblue = Cbbtab[cb];
+    /* Fetch 4 Y values and emit 4 pixels */
+    y  = GETJSAMPLE(*inptr00++);
+    outptr0[rgb_red[cinfo->out_color_space]] =   range_limit[y + cred];
+    outptr0[rgb_green[cinfo->out_color_space]] = range_limit[y + cgreen];
+    outptr0[rgb_blue[cinfo->out_color_space]] =  range_limit[y + cblue];
+    outptr0 += RGB_PIXELSIZE;
+    y  = GETJSAMPLE(*inptr00++);
+    outptr0[rgb_red[cinfo->out_color_space]] =   range_limit[y + cred];
+    outptr0[rgb_green[cinfo->out_color_space]] = range_limit[y + cgreen];
+    outptr0[rgb_blue[cinfo->out_color_space]] =  range_limit[y + cblue];
+    outptr0 += RGB_PIXELSIZE;
+    y  = GETJSAMPLE(*inptr01++);
+    outptr1[rgb_red[cinfo->out_color_space]] =   range_limit[y + cred];
+    outptr1[rgb_green[cinfo->out_color_space]] = range_limit[y + cgreen];
+    outptr1[rgb_blue[cinfo->out_color_space]] =  range_limit[y + cblue];
+    outptr1 += RGB_PIXELSIZE;
+    y  = GETJSAMPLE(*inptr01++);
+    outptr1[rgb_red[cinfo->out_color_space]] =   range_limit[y + cred];
+    outptr1[rgb_green[cinfo->out_color_space]] = range_limit[y + cgreen];
+    outptr1[rgb_blue[cinfo->out_color_space]] =  range_limit[y + cblue];
+    outptr1 += RGB_PIXELSIZE;
+  }
+  /* If image width is odd, do the last output column separately */
+  if (cinfo->output_width & 1) {
+    cb = GETJSAMPLE(*inptr1);
+    cr = GETJSAMPLE(*inptr2);
+    cred = Crrtab[cr];
+    cgreen = (int) RIGHT_SHIFT(Cbgtab[cb] + Crgtab[cr], SCALEBITS);
+    cblue = Cbbtab[cb];
+    y  = GETJSAMPLE(*inptr00);
+    outptr0[rgb_red[cinfo->out_color_space]] =   range_limit[y + cred];
+    outptr0[rgb_green[cinfo->out_color_space]] = range_limit[y + cgreen];
+    outptr0[rgb_blue[cinfo->out_color_space]] =  range_limit[y + cblue];
+    y  = GETJSAMPLE(*inptr01);
+    outptr1[rgb_red[cinfo->out_color_space]] =   range_limit[y + cred];
+    outptr1[rgb_green[cinfo->out_color_space]] = range_limit[y + cgreen];
+    outptr1[rgb_blue[cinfo->out_color_space]] =  range_limit[y + cblue];
+  }
+}
+
+#ifdef ANDROID
 
 #ifdef ANDROID_RGB
 METHODDEF(void)
 h2v1_merged_upsample_565 (j_decompress_ptr cinfo,
               JSAMPIMAGE input_buf, JDIMENSION in_row_group_ctr,
               JSAMPARRAY output_buf)
+#ifdef ANDROID_JPEG_USE_VENUM
+{
+  my_upsample_ptr upsample = (my_upsample_ptr) cinfo->upsample;
+  JSAMPROW inptr0, inptr1, inptr2;
+  JSAMPROW outptr;
+
+  inptr0 = input_buf[0][in_row_group_ctr];
+  inptr1 = input_buf[1][in_row_group_ctr];
+  inptr2 = input_buf[2][in_row_group_ctr];
+  outptr = output_buf[0];
+
+  yyvup2rgb565_venum((UINT8*) inptr0,
+                     (UINT8*) inptr2,
+                     (UINT8*) inptr1,
+                     (UINT8*) outptr,
+                     cinfo->output_width);
+}
+#else
 {
   my_upsample_ptr upsample = (my_upsample_ptr) cinfo->upsample;
   register int y, cred, cgreen, cblue;
@@ -365,9 +465,9 @@ h2v1_merged_upsample_565 (j_decompress_ptr cinfo,
     b = range_limit[y + cblue];
     rgb = PACK_SHORT_565(r,g,b);
     *(INT16*)outptr = rgb;
-  }
-}
-
+   }
+ }
+#endif
 
 METHODDEF(void)
 h2v1_merged_upsample_565D (j_decompress_ptr cinfo,
@@ -436,93 +536,35 @@ h2v1_merged_upsample_565D (j_decompress_ptr cinfo,
   }
 }
 
-
-#endif
-
-/*
- * Upsample and color convert for the case of 2:1 horizontal and 2:1 vertical.
- */
-
-METHODDEF(void)
-h2v2_merged_upsample (j_decompress_ptr cinfo,
-		      JSAMPIMAGE input_buf, JDIMENSION in_row_group_ctr,
-		      JSAMPARRAY output_buf)
-{
-  my_upsample_ptr upsample = (my_upsample_ptr) cinfo->upsample;
-  register int y, cred, cgreen, cblue;
-  int cb, cr;
-  register JSAMPROW outptr0, outptr1;
-  JSAMPROW inptr00, inptr01, inptr1, inptr2;
-  JDIMENSION col;
-  /* copy these pointers into registers if possible */
-  register JSAMPLE * range_limit = cinfo->sample_range_limit;
-  int * Crrtab = upsample->Cr_r_tab;
-  int * Cbbtab = upsample->Cb_b_tab;
-  INT32 * Crgtab = upsample->Cr_g_tab;
-  INT32 * Cbgtab = upsample->Cb_g_tab;
-  SHIFT_TEMPS
-
-  inptr00 = input_buf[0][in_row_group_ctr*2];
-  inptr01 = input_buf[0][in_row_group_ctr*2 + 1];
-  inptr1 = input_buf[1][in_row_group_ctr];
-  inptr2 = input_buf[2][in_row_group_ctr];
-  outptr0 = output_buf[0];
-  outptr1 = output_buf[1];
-  /* Loop for each group of output pixels */
-  for (col = cinfo->output_width >> 1; col > 0; col--) {
-    /* Do the chroma part of the calculation */
-    cb = GETJSAMPLE(*inptr1++);
-    cr = GETJSAMPLE(*inptr2++);
-    cred = Crrtab[cr];
-    cgreen = (int) RIGHT_SHIFT(Cbgtab[cb] + Crgtab[cr], SCALEBITS);
-    cblue = Cbbtab[cb];
-    /* Fetch 4 Y values and emit 4 pixels */
-    y  = GETJSAMPLE(*inptr00++);
-    outptr0[RGB_RED] = range_limit[y + cred];
-    outptr0[RGB_GREEN] = range_limit[y + cgreen];
-    outptr0[RGB_BLUE] = range_limit[y + cblue];
-    outptr0 += RGB_PIXELSIZE;
-    y  = GETJSAMPLE(*inptr00++);
-    outptr0[RGB_RED] = range_limit[y + cred];
-    outptr0[RGB_GREEN] = range_limit[y + cgreen];
-    outptr0[RGB_BLUE] = range_limit[y + cblue];
-    outptr0 += RGB_PIXELSIZE;
-    y  = GETJSAMPLE(*inptr01++);
-    outptr1[RGB_RED] = range_limit[y + cred];
-    outptr1[RGB_GREEN] = range_limit[y + cgreen];
-    outptr1[RGB_BLUE] = range_limit[y + cblue];
-    outptr1 += RGB_PIXELSIZE;
-    y  = GETJSAMPLE(*inptr01++);
-    outptr1[RGB_RED] = range_limit[y + cred];
-    outptr1[RGB_GREEN] = range_limit[y + cgreen];
-    outptr1[RGB_BLUE] = range_limit[y + cblue];
-    outptr1 += RGB_PIXELSIZE;
-  }
-  /* If image width is odd, do the last output column separately */
-  if (cinfo->output_width & 1) {
-    cb = GETJSAMPLE(*inptr1);
-    cr = GETJSAMPLE(*inptr2);
-    cred = Crrtab[cr];
-    cgreen = (int) RIGHT_SHIFT(Cbgtab[cb] + Crgtab[cr], SCALEBITS);
-    cblue = Cbbtab[cb];
-    y  = GETJSAMPLE(*inptr00);
-    outptr0[RGB_RED] = range_limit[y + cred];
-    outptr0[RGB_GREEN] = range_limit[y + cgreen];
-    outptr0[RGB_BLUE] = range_limit[y + cblue];
-    y  = GETJSAMPLE(*inptr01);
-    outptr1[RGB_RED] = range_limit[y + cred];
-    outptr1[RGB_GREEN] = range_limit[y + cgreen];
-    outptr1[RGB_BLUE] = range_limit[y + cblue];
-  }
-}
-
-
-#ifdef ANDROID_RGB
-
 METHODDEF(void)
 h2v2_merged_upsample_565 (j_decompress_ptr cinfo,
               JSAMPIMAGE input_buf, JDIMENSION in_row_group_ctr,
               JSAMPARRAY output_buf)
+#ifdef ANDROID_JPEG_USE_VENUM
+{
+  my_upsample_ptr upsample = (my_upsample_ptr) cinfo->upsample;
+  JSAMPROW outptr0, outptr1;
+  JSAMPROW inptr00, inptr01, inptr1, inptr2;
+  inptr00 = input_buf[0][in_row_group_ctr*2];
+  inptr01 = input_buf[0][in_row_group_ctr*2 + 1];
+  inptr1  = input_buf[1][in_row_group_ctr];
+  inptr2  = input_buf[2][in_row_group_ctr];
+  outptr0 = output_buf[0];
+  outptr1 = output_buf[1];
+
+  yyvup2rgb565_venum((UINT8*) inptr00,
+                     (UINT8*) inptr2,
+                     (UINT8*) inptr1,
+                     (UINT8*) outptr0,
+                     cinfo->output_width);
+
+  yyvup2rgb565_venum((UINT8*) inptr01,
+                     (UINT8*) inptr2,
+                     (UINT8*) inptr1,
+                     (UINT8*) outptr1,
+                     cinfo->output_width);
+}
+#else
 {
   my_upsample_ptr upsample = (my_upsample_ptr) cinfo->upsample;
   register int y, cred, cgreen, cblue;
@@ -599,10 +641,9 @@ h2v2_merged_upsample_565 (j_decompress_ptr cinfo,
    b = range_limit[y + cblue];
    rgb = PACK_SHORT_565(r,g,b);
    *(INT16*)outptr1 = rgb;
-  }
-}
-
-
+   }
+ }
+#endif
 
 METHODDEF(void)
 h2v2_merged_upsample_565D (j_decompress_ptr cinfo,
@@ -636,14 +677,14 @@ h2v2_merged_upsample_565D (j_decompress_ptr cinfo,
   outptr1 = output_buf[1];
   /* Loop for each group of output pixels */
   for (col = cinfo->output_width >> 1; col > 0; col--) {
-    
+   
     /* Do the chroma part of the calculation */
     cb = GETJSAMPLE(*inptr1++);
     cr = GETJSAMPLE(*inptr2++);
     cred = Crrtab[cr];
     cgreen = (int) RIGHT_SHIFT(Cbgtab[cb] + Crgtab[cr], SCALEBITS);
     cblue = Cbbtab[cb];
-    /* Fetch 4 Y values and emit 4 pixels */    
+    /* Fetch 4 Y values and emit 4 pixels */
     y  = GETJSAMPLE(*inptr00++);
     r = range_limit[DITHER_565_R(y + cred, d0)];
     g = range_limit[DITHER_565_G(y + cgreen, d0)];
@@ -695,7 +736,10 @@ h2v2_merged_upsample_565D (j_decompress_ptr cinfo,
   }
 }
 
-#endif
+#endif /* ANDROID_RGB */
+
+
+#endif /* ANDROID */
 
 /*
  * Module initialization routine for merged upsampling/color conversion.
@@ -718,40 +762,60 @@ jinit_merged_upsampler (j_decompress_ptr cinfo)
   upsample->pub.need_context_rows = FALSE;
 
   upsample->out_row_width = cinfo->output_width * cinfo->out_color_components;
-  
+
   if (cinfo->max_v_samp_factor == 2) {
     upsample->pub.upsample = merged_2v_upsample;
-    upsample->upmethod = h2v2_merged_upsample;
+    if (jsimd_can_h2v2_merged_upsample())
+      upsample->upmethod = jsimd_h2v2_merged_upsample;
+    else
+      upsample->upmethod = h2v2_merged_upsample;
+
 #ifdef ANDROID_RGB
     if (cinfo->out_color_space == JCS_RGB_565) {
-        if (cinfo->dither_mode == JDITHER_NONE) {
-            upsample->upmethod = h2v2_merged_upsample_565;
-        } else {
-            upsample->upmethod = h2v2_merged_upsample_565D;
-        }
-    }
+#ifndef ANDROID_JPEG_USE_VENUM
+      if (cinfo->dither_mode != JDITHER_NONE) {
+        upsample->upmethod = h2v2_merged_upsample_565D;
+      } else
 #endif
+      {
+        /* If VeNum routines are enabled, use h2v2_merged_upsample_565
+         * function regardless of dither mode. */
+        upsample->upmethod = h2v2_merged_upsample_565;
+      }
+    }
+#endif /* ANDROID_RGB */
+
     /* Allocate a spare row buffer */
     upsample->spare_row = (JSAMPROW)
       (*cinfo->mem->alloc_large) ((j_common_ptr) cinfo, JPOOL_IMAGE,
 		(size_t) (upsample->out_row_width * SIZEOF(JSAMPLE)));
   } else {
     upsample->pub.upsample = merged_1v_upsample;
-    upsample->upmethod = h2v1_merged_upsample;
+    if (jsimd_can_h2v1_merged_upsample())
+      upsample->upmethod = jsimd_h2v1_merged_upsample;
+    else
+      upsample->upmethod = h2v1_merged_upsample;
 #ifdef ANDROID_RGB
     if (cinfo->out_color_space == JCS_RGB_565) {
-        if (cinfo->dither_mode == JDITHER_NONE) {
-            upsample->upmethod = h2v1_merged_upsample_565;
-        } else {
-            upsample->upmethod = h2v1_merged_upsample_565D;
-        }
-    }
+#ifndef ANDROID_JPEG_USE_VENUM
+      if (cinfo->dither_mode != JDITHER_NONE) {
+        upsample->upmethod = h2v1_merged_upsample_565D;
+      } else
 #endif
+      {
+        /* If VeNum routines are enabled, use h2v1_merged_upsample_565
+         * function regardless of dither mode. */
+        upsample->upmethod = h2v1_merged_upsample_565;
+      }
+    }
+#endif /* ANDROID_RGB */
     /* No spare row needed */
     upsample->spare_row = NULL;
   }
 
+#ifndef ANDROID_JPEG_USE_VENUM
   build_ycc_rgb_table(cinfo);
+#endif
 }
 
 #endif /* UPSAMPLE_MERGING_SUPPORTED */

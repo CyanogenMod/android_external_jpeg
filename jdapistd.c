@@ -2,6 +2,7 @@
  * jdapistd.c
  *
  * Copyright (C) 1994-1996, Thomas G. Lane.
+ * Copyright (C) 2010, D. R. Commander.
  * This file is part of the Independent JPEG Group's software.
  * For conditions of distribution and use, see the accompanying README file.
  *
@@ -17,6 +18,7 @@
 #define JPEG_INTERNALS
 #include "jinclude.h"
 #include "jpeglib.h"
+#include "jpegcomp.h"
 
 
 /* Forward declarations */
@@ -81,33 +83,6 @@ jpeg_start_decompress (j_decompress_ptr cinfo)
   /* Perform any dummy output passes, and set up for the final pass */
   return output_pass_setup(cinfo);
 }
-
-/*
- * Tile decompression initialization.
- * jpeg_read_header must be completed before calling this.
- */
-
-GLOBAL(boolean)
-jpeg_start_tile_decompress (j_decompress_ptr cinfo)
-{
-  if (cinfo->global_state == DSTATE_READY) {
-    /* First call: initialize master control, select active modules */
-    cinfo->tile_decode = TRUE;
-    jinit_master_decompress(cinfo);
-    if (cinfo->buffered_image) {
-      cinfo->global_state = DSTATE_BUFIMAGE;
-      return TRUE;
-    }
-    cinfo->global_state = DSTATE_PRELOAD;
-  }
-  if (cinfo->global_state == DSTATE_PRELOAD) {
-    cinfo->output_scan_number = cinfo->input_scan_number;
-  } else if (cinfo->global_state != DSTATE_PRESCAN)
-    ERREXIT1(cinfo, JERR_BAD_STATE, cinfo->global_state);
-  /* Perform any dummy output passes, and set up for the final pass */
-  return output_pass_setup(cinfo);
-}
-
 
 /*
  * Set up for an output pass, and perform any dummy pass(es) needed.
@@ -200,17 +175,145 @@ jpeg_read_scanlines (j_decompress_ptr cinfo, JSAMPARRAY scanlines,
   cinfo->output_scanline += row_ctr;
   return row_ctr;
 }
+
+
+/*
+ * Alternate entry point to read raw data.
+ * Processes exactly one iMCU row per call, unless suspended.
+ */
+
+GLOBAL(JDIMENSION)
+jpeg_read_raw_data (j_decompress_ptr cinfo, JSAMPIMAGE data,
+		    JDIMENSION max_lines)
+{
+  JDIMENSION lines_per_iMCU_row;
+
+  if (cinfo->global_state != DSTATE_RAW_OK)
+    ERREXIT1(cinfo, JERR_BAD_STATE, cinfo->global_state);
+  if (cinfo->output_scanline >= cinfo->output_height) {
+    WARNMS(cinfo, JWRN_TOO_MUCH_DATA);
+    return 0;
+  }
+
+  /* Call progress monitor hook if present */
+  if (cinfo->progress != NULL) {
+    cinfo->progress->pass_counter = (long) cinfo->output_scanline;
+    cinfo->progress->pass_limit = (long) cinfo->output_height;
+    (*cinfo->progress->progress_monitor) ((j_common_ptr) cinfo);
+  }
+
+  /* Verify that at least one iMCU row can be returned. */
+  lines_per_iMCU_row = cinfo->max_v_samp_factor * cinfo->_min_DCT_scaled_size;
+  if (max_lines < lines_per_iMCU_row)
+    ERREXIT(cinfo, JERR_BUFFER_SIZE);
+
+  /* Decompress directly into user's buffer. */
+  if (! (*cinfo->coef->decompress_data) (cinfo, data))
+    return 0;			/* suspension forced, can do nothing more */
+
+  /* OK, we processed one iMCU row. */
+  cinfo->output_scanline += lines_per_iMCU_row;
+  return lines_per_iMCU_row;
+}
+
+
+/* Additional entry points for buffered-image mode. */
+
+#ifdef D_MULTISCAN_FILES_SUPPORTED
+
+/*
+ * Initialize for an output pass in buffered-image mode.
+ */
+
+GLOBAL(boolean)
+jpeg_start_output (j_decompress_ptr cinfo, int scan_number)
+{
+  if (cinfo->global_state != DSTATE_BUFIMAGE &&
+      cinfo->global_state != DSTATE_PRESCAN)
+    ERREXIT1(cinfo, JERR_BAD_STATE, cinfo->global_state);
+  /* Limit scan number to valid range */
+  if (scan_number <= 0)
+    scan_number = 1;
+  if (cinfo->inputctl->eoi_reached &&
+      scan_number > cinfo->input_scan_number)
+    scan_number = cinfo->input_scan_number;
+  cinfo->output_scan_number = scan_number;
+  /* Perform any dummy output passes, and set up for the real pass */
+  return output_pass_setup(cinfo);
+}
+
+
+/*
+ * Finish up after an output pass in buffered-image mode.
+ *
+ * Returns FALSE if suspended.  The return value need be inspected only if
+ * a suspending data source is used.
+ */
+
+GLOBAL(boolean)
+jpeg_finish_output (j_decompress_ptr cinfo)
+{
+  if ((cinfo->global_state == DSTATE_SCANNING ||
+       cinfo->global_state == DSTATE_RAW_OK) && cinfo->buffered_image) {
+    /* Terminate this pass. */
+    /* We do not require the whole pass to have been completed. */
+    (*cinfo->master->finish_output_pass) (cinfo);
+    cinfo->global_state = DSTATE_BUFPOST;
+  } else if (cinfo->global_state != DSTATE_BUFPOST) {
+    /* BUFPOST = repeat call after a suspension, anything else is error */
+    ERREXIT1(cinfo, JERR_BAD_STATE, cinfo->global_state);
+  }
+  /* Read markers looking for SOS or EOI */
+  while (cinfo->input_scan_number <= cinfo->output_scan_number &&
+	 ! cinfo->inputctl->eoi_reached) {
+    if ((*cinfo->inputctl->consume_input) (cinfo) == JPEG_SUSPENDED)
+      return FALSE;		/* Suspend, come back later */
+  }
+  cinfo->global_state = DSTATE_BUFIMAGE;
+  return TRUE;
+}
+
+#endif /* D_MULTISCAN_FILES_SUPPORTED */
+
+#ifdef ANDROID
+
+/*
+ * Tile decompression initialization.
+ * jpeg_read_header must be completed before calling this.
+ */
+
+GLOBAL(boolean)
+jpeg_start_tile_decompress (j_decompress_ptr cinfo)
+{
+  if (cinfo->global_state == DSTATE_READY) {
+    /* First call: initialize master control, select active modules */
+    cinfo->tile_decode = TRUE;
+    jinit_master_decompress(cinfo);
+    if (cinfo->buffered_image) {
+      cinfo->global_state = DSTATE_BUFIMAGE;
+      return TRUE;
+    }
+    cinfo->global_state = DSTATE_PRELOAD;
+  }
+  if (cinfo->global_state == DSTATE_PRELOAD) {
+    cinfo->output_scan_number = cinfo->input_scan_number;
+  } else if (cinfo->global_state != DSTATE_PRESCAN)
+    ERREXIT1(cinfo, JERR_BAD_STATE, cinfo->global_state);
+  /* Perform any dummy output passes, and set up for the final pass */
+  return output_pass_setup(cinfo);
+}
+
 /*
  * Initialize the jpeg decoder to decompressing a rectangle with size of (width, height)
  * and its upper-left corner located at (start_x, start_y).
  * Align start_x and start_y to multiplies of iMCU width and height, respectively.
  * Also, the new reader position and sampled image size will be returned in
  * (start_x, start_y) and (width, height), respectively.
- */
++ */
 
 GLOBAL(void)
 jpeg_init_read_tile_scanline(j_decompress_ptr cinfo, huffman_index *index,
-		     int *start_x, int *start_y, int *width, int *height)
+                    int *start_x, int *start_y, int *width, int *height)
 {
   // Calculates the boundary of iMCU
   int lines_per_iMCU_row = cinfo->max_v_samp_factor * DCTSIZE;
@@ -298,100 +401,4 @@ jpeg_read_tile_scanline (j_decompress_ptr cinfo, huffman_index *index,
   return row_ctr;
 }
 
-/*
- * Alternate entry point to read raw data.
- * Processes exactly one iMCU row per call, unless suspended.
- */
-
-GLOBAL(JDIMENSION)
-jpeg_read_raw_data (j_decompress_ptr cinfo, JSAMPIMAGE data,
-		    JDIMENSION max_lines)
-{
-  JDIMENSION lines_per_iMCU_row;
-
-  if (cinfo->global_state != DSTATE_RAW_OK)
-    ERREXIT1(cinfo, JERR_BAD_STATE, cinfo->global_state);
-  if (cinfo->output_scanline >= cinfo->output_height) {
-    WARNMS(cinfo, JWRN_TOO_MUCH_DATA);
-    return 0;
-  }
-
-  /* Call progress monitor hook if present */
-  if (cinfo->progress != NULL) {
-    cinfo->progress->pass_counter = (long) cinfo->output_scanline;
-    cinfo->progress->pass_limit = (long) cinfo->output_height;
-    (*cinfo->progress->progress_monitor) ((j_common_ptr) cinfo);
-  }
-
-  /* Verify that at least one iMCU row can be returned. */
-  lines_per_iMCU_row = cinfo->max_v_samp_factor * cinfo->min_DCT_scaled_size;
-  if (max_lines < lines_per_iMCU_row)
-    ERREXIT(cinfo, JERR_BUFFER_SIZE);
-
-  /* Decompress directly into user's buffer. */
-  if (! (*cinfo->coef->decompress_data) (cinfo, data))
-    return 0;			/* suspension forced, can do nothing more */
-
-  /* OK, we processed one iMCU row. */
-  cinfo->output_scanline += lines_per_iMCU_row;
-  return lines_per_iMCU_row;
-}
-
-
-/* Additional entry points for buffered-image mode. */
-
-#ifdef D_MULTISCAN_FILES_SUPPORTED
-
-/*
- * Initialize for an output pass in buffered-image mode.
- */
-
-GLOBAL(boolean)
-jpeg_start_output (j_decompress_ptr cinfo, int scan_number)
-{
-  if (cinfo->global_state != DSTATE_BUFIMAGE &&
-      cinfo->global_state != DSTATE_PRESCAN)
-    ERREXIT1(cinfo, JERR_BAD_STATE, cinfo->global_state);
-  /* Limit scan number to valid range */
-  if (scan_number <= 0)
-    scan_number = 1;
-  if (cinfo->inputctl->eoi_reached &&
-      scan_number > cinfo->input_scan_number)
-    scan_number = cinfo->input_scan_number;
-  cinfo->output_scan_number = scan_number;
-  /* Perform any dummy output passes, and set up for the real pass */
-  return output_pass_setup(cinfo);
-}
-
-
-/*
- * Finish up after an output pass in buffered-image mode.
- *
- * Returns FALSE if suspended.  The return value need be inspected only if
- * a suspending data source is used.
- */
-
-GLOBAL(boolean)
-jpeg_finish_output (j_decompress_ptr cinfo)
-{
-  if ((cinfo->global_state == DSTATE_SCANNING ||
-       cinfo->global_state == DSTATE_RAW_OK) && cinfo->buffered_image) {
-    /* Terminate this pass. */
-    /* We do not require the whole pass to have been completed. */
-    (*cinfo->master->finish_output_pass) (cinfo);
-    cinfo->global_state = DSTATE_BUFPOST;
-  } else if (cinfo->global_state != DSTATE_BUFPOST) {
-    /* BUFPOST = repeat call after a suspension, anything else is error */
-    ERREXIT1(cinfo, JERR_BAD_STATE, cinfo->global_state);
-  }
-  /* Read markers looking for SOS or EOI */
-  while (cinfo->input_scan_number <= cinfo->output_scan_number &&
-	 ! cinfo->inputctl->eoi_reached) {
-    if ((*cinfo->inputctl->consume_input) (cinfo) == JPEG_SUSPENDED)
-      return FALSE;		/* Suspend, come back later */
-  }
-  cinfo->global_state = DSTATE_BUFIMAGE;
-  return TRUE;
-}
-
-#endif /* D_MULTISCAN_FILES_SUPPORTED */
+#endif /* ANDROID */
