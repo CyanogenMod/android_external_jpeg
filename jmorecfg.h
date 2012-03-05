@@ -2,6 +2,7 @@
  * jmorecfg.h
  *
  * Copyright (C) 1991-1997, Thomas G. Lane.
+ * Copyright (C) 2009, D. R. Commander.
  * This file is part of the Independent JPEG Group's software.
  * For conditions of distribution and use, see the accompanying README file.
  *
@@ -11,26 +12,15 @@
  */
 
 /*
- * Define ANDROID_RGB to enable specific optimizations for Android
- *   JCS_RGBA_8888 support
- *   JCS_RGB_565 support
- * 
+ * When we're building for android, turn on ANDROID_RGB by default. 
+ * This is needed for components like skia which make use of the
+ * new encodings defined behind ANDROID_RBG. It's not a reasonable
+ * config to have ANDROID_RBG off.
  */
-
+#ifdef ANDROID
+#ifndef ANDROID_RGB
 #define ANDROID_RGB
-
-#ifdef ANDROID_RGB
-#define PACK_SHORT_565(r,g,b)  ((((r)<<8)&0xf800)|(((g)<<3)&0x7E0)|((b)>>3))
-#define PACK_TWO_PIXELS(l,r)   ((r<<16) | l)
-#define PACK_NEED_ALIGNMENT(ptr) (((int)(ptr))&3)
-#define WRITE_TWO_PIXELS(addr, pixels) do {     \
-         ((INT16*)(addr))[0] = (pixels);        \
-         ((INT16*)(addr))[1] = (pixels)>>16;    \
-    } while(0)
-#define WRITE_TWO_ALIGNED_PIXELS(addr, pixels)  ((*(INT32*)(addr)) = pixels)
-#define DITHER_565_R(r, dither) ((r) + ((dither)&0xFF))
-#define DITHER_565_G(g, dither) ((g) + (((dither)&0xFF)>>1))
-#define DITHER_565_B(b, dither) ((b) + ((dither)&0xFF))
+#endif
 #endif
 
 /*
@@ -84,11 +74,11 @@ typedef unsigned char JSAMPLE;
 #else /* not HAVE_UNSIGNED_CHAR */
 
 typedef char JSAMPLE;
-#ifdef CHAR_IS_UNSIGNED
+#ifdef __CHAR_UNSIGNED__
 #define GETJSAMPLE(value)  ((int) (value))
 #else
 #define GETJSAMPLE(value)  ((int) (value) & 0xFF)
-#endif /* CHAR_IS_UNSIGNED */
+#endif /* __CHAR_UNSIGNED__ */
 
 #endif /* HAVE_UNSIGNED_CHAR */
 
@@ -135,11 +125,11 @@ typedef unsigned char JOCTET;
 #else /* not HAVE_UNSIGNED_CHAR */
 
 typedef char JOCTET;
-#ifdef CHAR_IS_UNSIGNED
+#ifdef __CHAR_UNSIGNED__
 #define GETJOCTET(value)  (value)
 #else
 #define GETJOCTET(value)  ((value) & 0xFF)
-#endif /* CHAR_IS_UNSIGNED */
+#endif /* __CHAR_UNSIGNED__ */
 
 #endif /* HAVE_UNSIGNED_CHAR */
 
@@ -156,11 +146,11 @@ typedef char JOCTET;
 #ifdef HAVE_UNSIGNED_CHAR
 typedef unsigned char UINT8;
 #else /* not HAVE_UNSIGNED_CHAR */
-#ifdef CHAR_IS_UNSIGNED
+#ifdef __CHAR_UNSIGNED__
 typedef char UINT8;
-#else /* not CHAR_IS_UNSIGNED */
+#else /* not __CHAR_UNSIGNED__ */
 typedef short UINT8;
-#endif /* CHAR_IS_UNSIGNED */
+#endif /* __CHAR_UNSIGNED__ */
 #endif /* HAVE_UNSIGNED_CHAR */
 
 /* UINT16 must hold at least the values 0..65535. */
@@ -278,8 +268,6 @@ typedef int boolean;
  * (You may HAVE to do that if your compiler doesn't like null source files.)
  */
 
-/* Arithmetic coding is unsupported for legal reasons.  Complaints to IBM. */
-
 /* Capability options common to encoder and decoder: */
 
 #define DCT_ISLOW_SUPPORTED	/* slow but accurate integer algorithm */
@@ -288,7 +276,6 @@ typedef int boolean;
 
 /* Encoder capability options: */
 
-#undef  C_ARITH_CODING_SUPPORTED    /* Arithmetic coding back end? */
 #define C_MULTISCAN_FILES_SUPPORTED /* Multiple-scan JPEG files? */
 #define C_PROGRESSIVE_SUPPORTED	    /* Progressive JPEG? (Requires MULTISCAN)*/
 #define ENTROPY_OPT_SUPPORTED	    /* Optimization of entropy coding parms? */
@@ -304,7 +291,6 @@ typedef int boolean;
 
 /* Decoder capability options: */
 
-#undef  D_ARITH_CODING_SUPPORTED    /* Arithmetic coding back end? */
 #define D_MULTISCAN_FILES_SUPPORTED /* Multiple-scan JPEG files? */
 #define D_PROGRESSIVE_SUPPORTED	    /* Progressive JPEG? (Requires MULTISCAN)*/
 #define SAVE_MARKERS_SUPPORTED	    /* jpeg_save_markers() needed? */
@@ -336,27 +322,55 @@ typedef int boolean;
 #define RGB_RED		0	/* Offset of Red in an RGB scanline element */
 #define RGB_GREEN	1	/* Offset of Green */
 #define RGB_BLUE	2	/* Offset of Blue */
+#define RGB_PIXELSIZE	3	/* JSAMPLEs per RGB scanline element */
+
 #ifdef ANDROID_RGB
 #define RGB_ALPHA   3   /* Offset of Alpha */
 #endif
-#define RGB_PIXELSIZE   3   /* JSAMPLEs per RGB scanline element */
-
-/* Definitions for speed-related optimizations. */
 
 
-/* If your compiler supports inline functions, define INLINE
- * as the inline keyword; otherwise define it as empty.
+#define JPEG_NUMCS 12
+
+static const int rgb_red[JPEG_NUMCS] = {
+	-1, -1, RGB_RED, -1, -1, -1, 0, 0, 2, 2, 3, 1
+};
+
+static const int rgb_green[JPEG_NUMCS] = {
+	-1, -1, RGB_GREEN, -1, -1, -1, 1, 1, 1, 1, 2, 2
+};
+
+static const int rgb_blue[JPEG_NUMCS] = {
+	-1, -1, RGB_BLUE, -1, -1, -1, 2, 2, 0, 0, 1, 3
+};
+
+static const int rgb_pixelsize[JPEG_NUMCS] = {
+	-1, -1, RGB_PIXELSIZE, -1, -1, -1, 3, 4, 3, 4, 4, 4
+};
+
+
+/*
+ * Define ANDROID_RGB to enable specific optimizations for Android
+ *   JCS_RGBA_8888 support
+ *   JCS_RGB_565 support
+ *
  */
 
-#ifndef INLINE
-#ifdef __GNUC__			/* for instance, GNU C knows about inline */
-#define INLINE __inline__
-#endif
-#ifndef INLINE
-#define INLINE			/* default is to define it as empty */
-#endif
+#ifdef ANDROID_RGB
+#define PACK_SHORT_565(r,g,b)  ((((r)<<8)&0xf800)|(((g)<<3)&0x7E0)|((b)>>3))
+#define PACK_TWO_PIXELS(l,r)   ((r<<16) | l)
+#define PACK_NEED_ALIGNMENT(ptr) (((int)(ptr))&3)
+#define WRITE_TWO_PIXELS(addr, pixels) do {     \
+         ((INT16*)(addr))[0] = (pixels);        \
+         ((INT16*)(addr))[1] = (pixels)>>16;    \
+    } while(0)
+#define WRITE_TWO_ALIGNED_PIXELS(addr, pixels)  ((*(INT32*)(addr)) = pixels)
+#define DITHER_565_R(r, dither) ((r) + ((dither)&0xFF))
+#define DITHER_565_G(g, dither) ((g) + (((dither)&0xFF)>>1))
+#define DITHER_565_B(b, dither) ((b) + ((dither)&0xFF))
 #endif
 
+
+/* Definitions for speed-related optimizations. */
 
 /* On some machines (notably 68000 series) "int" is 32 bits, but multiplying
  * two 16-bit shorts is faster than multiplying two ints.  Define MULTIPLIER
@@ -364,7 +378,11 @@ typedef int boolean;
  */
 
 #ifndef MULTIPLIER
+#ifndef WITH_SIMD
 #define MULTIPLIER  int		/* type for fastest integer multiply */
+#else
+#define MULTIPLIER short  /* prefer 16-bit with SIMD for parellelism */
+#endif
 #endif
 
 

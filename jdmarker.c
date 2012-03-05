@@ -965,12 +965,16 @@ read_markers (j_decompress_ptr cinfo)
       }
     }
 
+#ifdef ANDROID
+
     /*
      * Save the position of the fist marker after SOF.
      */
     if (cinfo->marker->current_sos_marker_position == -1)
       cinfo->marker->current_sos_marker_position =
           jget_input_stream_position(cinfo) - 2;
+
+#endif /* ANDROID */
 
     /* At this point cinfo->unread_marker contains the marker code and the
      * input point is just past the marker proper, but before any parameters.
@@ -989,7 +993,9 @@ read_markers (j_decompress_ptr cinfo)
       break;
 
     case M_SOF2:		/* Progressive, Huffman */
+#ifdef ANDROID
       cinfo->marker->current_sos_marker_position = -1;
+#endif /* ANDROID */
       if (! get_sof(cinfo, TRUE, FALSE))
 	return JPEG_SUSPENDED;
       break;
@@ -1242,6 +1248,27 @@ jpeg_resync_to_restart (j_decompress_ptr cinfo, int desired)
   } /* end loop */
 }
 
+
+/*
+ * Reset marker processing state to begin a fresh datastream.
+ */
+
+METHODDEF(void)
+reset_marker_reader (j_decompress_ptr cinfo)
+{
+  my_marker_ptr marker = (my_marker_ptr) cinfo->marker;
+
+  cinfo->comp_info = NULL;		/* until allocated by get_sof */
+  cinfo->input_scan_number = 0;		/* no SOS seen yet */
+  cinfo->unread_marker = 0;		/* no pending marker */
+  marker->pub.saw_SOI = FALSE;		/* set internal state too */
+  marker->pub.saw_SOF = FALSE;
+  marker->pub.discarded_bytes = 0;
+  marker->cur_marker = NULL;
+}
+
+#ifdef ANDROID
+
 /*
  * Get the position for all SOS markers in the image.
  */
@@ -1270,23 +1297,7 @@ get_sos_marker_position(j_decompress_ptr cinfo, huffman_index *index)
   }
 }
 
-/*
- * Reset marker processing state to begin a fresh datastream.
- */
-
-METHODDEF(void)
-reset_marker_reader (j_decompress_ptr cinfo)
-{
-  my_marker_ptr marker = (my_marker_ptr) cinfo->marker;
-
-  cinfo->comp_info = NULL;		/* until allocated by get_sof */
-  cinfo->input_scan_number = 0;		/* no SOS seen yet */
-  cinfo->unread_marker = 0;		/* no pending marker */
-  marker->pub.saw_SOI = FALSE;		/* set internal state too */
-  marker->pub.saw_SOF = FALSE;
-  marker->pub.discarded_bytes = 0;
-  marker->cur_marker = NULL;
-}
+#endif /* ANDROID */
 
 
 /*
@@ -1309,11 +1320,10 @@ jinit_marker_reader (j_decompress_ptr cinfo)
   marker->pub.reset_marker_reader = reset_marker_reader;
   marker->pub.read_markers = read_markers;
   marker->pub.read_restart_marker = read_restart_marker;
+#ifdef ANDROID
   marker->pub.get_sos_marker_position = get_sos_marker_position;
+#endif /* ANDROID */
 
-  // Initialize the SOS marker position to avoid underdefined behavior due to
-  // using a undefined field.
-  marker->pub.current_sos_marker_position = 0;
 
   /* Initialize COM/APPn processing.
    * By default, we examine and then discard APP0 and APP14,
