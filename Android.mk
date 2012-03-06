@@ -25,21 +25,24 @@ EXTRA_DIST = simd/nasm_lt.sh simd/jcclrmmx.asm simd/jcclrss2.asm simd/jdclrmmx.a
 	simd/jdmrgmmx.asm simd/jdmrgss2.asm simd/jcclrss2-64.asm simd/jdclrss2-64.asm \
 	simd/jdmrgss2-64.asm simd/CMakeLists.txt
 
+ifeq ($(ANDROID_JPEG_USE_VENUM),true)
 libsimd_SOURCES_DIST = simd/jsimd_arm_neon.S \
                        asm/armv7//jdcolor-armv7.S asm/armv7/jdidct-armv7.S \
                        simd/jsimd_arm.c
-
-# or jsimd_none.c
-
+else
+libsimd_SOURCES_DIST = jsimd_none.c
+endif
 
 LOCAL_SRC_FILES := $(libsimd_SOURCES_DIST)
 
 LOCAL_C_INCLUDES := $(LOCAL_PATH)/simd \
                     $(LOCAL_PATH)/android
 
+ifeq ($(ANDROID_JPEG_USE_VENUM),true)
 LOCAL_CFLAGS := -DANDROID_JPEG_USE_VENUM
 AM_CFLAGS := -march=armv7-a -mfpu=neon
 AM_CCASFLAGS := -march=armv7-a -mfpu=neon
+endif
 
 LOCAL_MODULE_TAGS := optional
 
@@ -68,7 +71,11 @@ libjpeg_SOURCES_DIST =  jcapimin.c jcapistd.c jccoefct.c jccolor.c \
 
 #possible adds jmem-android.c jmemnobs.c jmemmgr.c jmem-ashmem.c
 
+ifeq ($(ANDROID_JPEG_USE_VENUM),true)
 LOCAL_SRC_FILES:= $(libjpeg_SOURCES_DIST)
+else
+LOCAL_SRC_FILES:= $(libjpeg_SOURCES_DIST) armv6_idct.S
+endif
 
 LOCAL_SHARED_LIBRARIES := libcutils
 LOCAL_STATIC_LIBRARIES := libsimd
@@ -76,8 +83,13 @@ LOCAL_STATIC_LIBRARIES := libsimd
 LOCAL_C_INCLUDES := $(LOCAL_PATH) \
                     $(LOCAL_PATH)/android
 
+ifeq ($(ANDROID_JPEG_USE_VENUM),true)
 LOCAL_CFLAGS := -DAVOID_TABLES  -O3 -fstrict-aliasing -fprefetch-loop-arrays  -DANDROID \
         -DANDROID_TILE_BASED_DECODE -DENABLE_ANDROID_NULL_CONVERT -DANDROID_JPEG_USE_VENUM
+else
+LOCAL_CFLAGS := -DAVOID_TABLES  -O3 -fstrict-aliasing -DANDROID \
+        -DANDROID_TILE_BASED_DECODE -DENABLE_ANDROID_NULL_CONVERT
+endif
 
 #-DANDROID_TILE_BASED_DECODE -DUSE_ANDROID_ASHMEM
 
