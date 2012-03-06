@@ -41,7 +41,9 @@
 /* #undef RIGHT_SHIFT_IS_UNSIGNED */
 
 /* Use accelerated SIMD routines. */
+#ifdef ANDROID_JPEG_USE_VENUM
 #define WITH_SIMD 1
+#endif
 
 /* Define to 1 if type `char' is unsigned and you are not using gcc.  */
 #ifndef __CHAR_UNSIGNED__
