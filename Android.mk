@@ -40,9 +40,17 @@ ifeq ($(TARGET_ARCH_VARIANT),x86-atom)
   LOCAL_SRC_FILES += jidctintelsse.c
 endif
 
-# enable armv6 idct assembly
 ifeq ($(strip $(TARGET_ARCH)),arm)
-  LOCAL_CFLAGS += -DANDROID_ARMV6_IDCT
+  ifeq ($(ARCH_ARM_HAVE_NEON),true)
+    #use NEON accelerations
+    LOCAL_CFLAGS += -DNV_ARM_NEON
+    LOCAL_SRC_FILES += \
+        jsimd_arm_neon.S \
+        jsimd_neon.c
+  else
+    # enable armv6 idct assembly
+    LOCAL_CFLAGS += -DANDROID_ARMV6_IDCT
+  endif
 endif
 
 # use mips assembler IDCT implementation if MIPS DSP-ASE is present

@@ -32,6 +32,10 @@
   #endif
 #endif
 
+#ifdef NV_ARM_NEON
+#include "jsimd_neon.h"
+#endif
+
 #ifdef ANDROID_ARMV6_IDCT
 
 /* Intentionally declare the prototype with arguments of primitive types instead
@@ -145,11 +149,27 @@ start_pass (j_decompress_ptr cinfo)
       method = JDCT_ISLOW;	/* jidctred uses islow-style table */
       break;
     case 2:
+#if defined(NV_ARM_NEON) && defined(__ARM_HAVE_NEON)
+      if (cap_neon_idct_2x2()) {
+        method_ptr = jsimd_idct_2x2;
+      } else {
+        method_ptr = jpeg_idct_2x2;
+      }
+#else
       method_ptr = jpeg_idct_2x2;
+#endif
       method = JDCT_ISLOW;	/* jidctred uses islow-style table */
       break;
     case 4:
+#if defined(NV_ARM_NEON) && defined(__ARM_HAVE_NEON)
+	  if (cap_neon_idct_4x4()) {
+        method_ptr = jsimd_idct_4x4;
+      } else {
+        method_ptr = jpeg_idct_4x4;
+      }
+#else
       method_ptr = jpeg_idct_4x4;
+#endif
       method = JDCT_ISLOW;	/* jidctred uses islow-style table */
       break;
 #endif
@@ -184,7 +204,15 @@ start_pass (j_decompress_ptr cinfo)
 #endif
 #ifdef DCT_IFAST_SUPPORTED
       case JDCT_IFAST:
-	method_ptr = jpeg_idct_ifast;
+#if defined(NV_ARM_NEON) && defined(__ARM_HAVE_NEON)
+        if (cap_neon_idct_ifast()) {
+          method_ptr = jsimd_idct_ifast;
+        } else {
+          method_ptr = jpeg_idct_ifast;
+        }
+#else
+        method_ptr = jpeg_idct_ifast;
+#endif
 	method = JDCT_IFAST;
 	break;
 #endif

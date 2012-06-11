@@ -366,12 +366,12 @@ typedef int boolean;
 #ifndef MULTIPLIER
 #ifdef ANDROID_INTELSSE2_IDCT
   #define MULTIPLIER short
+#elif ANDROID_MIPS_IDCT
+  #define MULTIPLIER  short
+#elif NV_ARM_NEON
+  #define MULTIPLIER short
 #else
-  #ifdef ANDROID_MIPS_IDCT
-    #define MULTIPLIER  short
-  #else
-    #define MULTIPLIER  int		/* type for fastest integer multiply */
-  #endif
+  #define MULTIPLIER  int		/* type for fastest integer multiply */
 #endif
 #endif
 
