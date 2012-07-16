@@ -30,8 +30,13 @@ LOCAL_CFLAGS += -O3 -fstrict-aliasing -fprefetch-loop-arrays
 # enable tile based decode
 LOCAL_CFLAGS += -DANDROID_TILE_BASED_DECODE
 
+ifeq ($(TARGET_ARCH_VARIANT),x86-atom)
+LOCAL_CFLAGS += -DANDROID_INTELSSE2_IDCT
+LOCAL_SRC_FILES += jidctintelsse.c
+else
 # enable armv6 idct assembly
 LOCAL_CFLAGS += -DANDROID_ARMV6_IDCT
+endif
 
 LOCAL_MODULE:= libjpeg
 
