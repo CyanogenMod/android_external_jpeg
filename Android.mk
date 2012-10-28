@@ -23,7 +23,7 @@ LOCAL_SRC_FILES := \
 	jdinput.c jdmainct.c jdmarker.c jdmaster.c jdmerge.c jdphuff.c \
 	jdpostct.c jdsample.c jdtrans.c jerror.c jfdctflt.c jfdctfst.c \
 	jfdctint.c jidctflt.c jquant1.c \
-	jquant2.c jutils.c jmemmgr.c \
+	jquant2.c jutils.c jmemmgr.c armv6_idct.S
 
 # use ashmem as libjpeg decoder's backing store
 LOCAL_CFLAGS += -DUSE_ANDROID_ASHMEM
@@ -35,15 +35,6 @@ LOCAL_SRC_FILES += \
 #LOCAL_SRC_FILES += \
 #	jmem-android.c
 
-
-# the assembler is only for the ARM version, don't break the Linux sim
-ifneq ($(TARGET_ARCH),arm)
-ANDROID_JPEG_NO_ASSEMBLER := true
-endif
-
-ifeq ($(strip $(ANDROID_JPEG_NO_ASSEMBLER)),true)
-LOCAL_SRC_FILES += jidctint.c jidctfst.c jidctred.c
-else
 ifeq ($(ANDROID_JPEG_USE_VENUM),true)
 LOCAL_SRC_FILES += jidctvenum.c
 LOCAL_SRC_FILES += asm/armv7/jdcolor-armv7.S
@@ -51,10 +42,8 @@ LOCAL_SRC_FILES += asm/armv7/jdcolor-android-armv7.S
 LOCAL_SRC_FILES += asm/armv7/jdidct-armv7.S
 LOCAL_CFLAGS    += -DANDROID_JPEG_USE_VENUM
 else # ANDROID_JPEG_USE_VENUM, false
-LOCAL_SRC_FILES += jidctint.c jidctred.c jidctfst.c armv6_idct.S
-LOCAL_CFLAGS    += -DANDROID_ARMV6_IDCT
+LOCAL_SRC_FILES += jidctint.c jidctfst.c jidctred.c
 endif # ANDROID_JPEG_USE_VENUM
-endif
 
 LOCAL_CFLAGS += -DAVOID_TABLES
 LOCAL_CFLAGS += -O3 -fstrict-aliasing -fprefetch-loop-arrays
@@ -70,7 +59,15 @@ LOCAL_CFLAGS+= \
 	$(foreach f,$(asm_flags),-Wa,"$(f)")
 endif
 
+# enable armv6 idct assembly
+LOCAL_CFLAGS += -DANDROID_ARMV6_IDCT
+
 LOCAL_MODULE:= libjpeg
+
+#ifneq(, $(filter userdebug eng, $(TARGET_BUILD_VARIANT)))
+ifneq ($(filter eng userdebug, $(TARGET_BUILD_VARIANT)),)
+  LOCAL_STRIP_MODULE := false
+endif
 
 LOCAL_SHARED_LIBRARIES := \
 	libcutils

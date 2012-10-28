@@ -280,7 +280,7 @@ METHODDEF(void)
 ycc_rgb_565_convert (j_decompress_ptr cinfo,
          JSAMPIMAGE input_buf, JDIMENSION input_row,
          JSAMPARRAY output_buf, int num_rows)
-#if defined(ANDROID_JPEG_USE_VENUM)
+#ifdef ANDROID_JPEG_USE_VENUM
 /*
  * Converts YCC->RGB565 using VeNum instructions.
  */
@@ -919,7 +919,7 @@ jinit_color_deconverter (j_decompress_ptr cinfo)
     if (cinfo->dither_mode == JDITHER_NONE) {
       if (cinfo->jpeg_color_space == JCS_YCbCr) {
         cconvert->pub.color_convert = ycc_rgb_565_convert;
-#if !defined(ANDROID_JPEG_USE_VENUM)
+#ifndef ANDROID_JPEG_USE_VENUM
         build_ycc_rgb_table(cinfo);
 #endif /* ANDROID_JPEG_USE_VENUM */
       } else if (cinfo->jpeg_color_space == JCS_GRAYSCALE) {
@@ -931,7 +931,7 @@ jinit_color_deconverter (j_decompress_ptr cinfo)
     } else {
       /* only ordered dither is supported */
       if (cinfo->jpeg_color_space == JCS_YCbCr) {
-#if defined(ANDROID_JPEG_USE_VENUM)
+#ifdef ANDROID_JPEG_USE_VENUM
         /* Use VeNum routine even if dithering option is selected. */
         cconvert->pub.color_convert = ycc_rgb_565_convert;
 #else
