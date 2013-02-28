@@ -31,11 +31,23 @@ LOCAL_CFLAGS += -O3 -fstrict-aliasing -fprefetch-loop-arrays
 LOCAL_CFLAGS += -DANDROID_TILE_BASED_DECODE
 
 ifeq ($(TARGET_ARCH_VARIANT),x86-atom)
-LOCAL_CFLAGS += -DANDROID_INTELSSE2_IDCT
-LOCAL_SRC_FILES += jidctintelsse.c
-else
+  LOCAL_CFLAGS += -DANDROID_INTELSSE2_IDCT
+  LOCAL_SRC_FILES += jidctintelsse.c
+endif
+
 # enable armv6 idct assembly
-LOCAL_CFLAGS += -DANDROID_ARMV6_IDCT
+ifeq ($(strip $(TARGET_ARCH)),arm)
+  LOCAL_CFLAGS += -DANDROID_ARMV6_IDCT
+endif
+
+# use mips assembler IDCT implementation if MIPS DSP-ASE is present
+ifeq ($(strip $(TARGET_ARCH)),mips)
+  ifeq ($(strip $(ARCH_MIPS_HAS_DSP)),true)
+  LOCAL_CFLAGS += -DANDROID_MIPS_IDCT
+  LOCAL_SRC_FILES += \
+      mips_jidctfst.c \
+      mips_idct_le.S
+  endif
 endif
 
 LOCAL_MODULE:= libjpeg
@@ -44,3 +56,21 @@ LOCAL_SHARED_LIBRARIES := \
 	libcutils
 
 include $(BUILD_SHARED_LIBRARY)
+
+include $(CLEAR_VARS)
+LOCAL_ARM_MODE := arm
+LOCAL_SRC_FILES := \
+	cjpeg.c cdjpeg.h jinclude.h jconfig.h jpeglib.h jmorecfg.h jerror.h cderror.h jversion.h rdswitch.c cdjpeg.c rdtarga.c rdppm.c rdgif.c rdbmp.c
+LOCAL_MODULE:= cjpeg
+LOCAL_MODULE_TAGS := eng
+LOCAL_SHARED_LIBRARIES := libc libcutils libjpeg
+include $(BUILD_EXECUTABLE)
+
+include $(CLEAR_VARS)
+LOCAL_ARM_MODE := arm
+LOCAL_SRC_FILES := \
+	djpeg.c cdjpeg.h jinclude.h jconfig.h jpeglib.h jmorecfg.h jerror.h cderror.h jversion.h cdjpeg.c wrppm.c wrgif.c wrbmp.c rdcolmap.c wrtarga.c
+LOCAL_MODULE:= djpeg
+LOCAL_MODULE_TAGS := eng
+LOCAL_SHARED_LIBRARIES := libc libcutils libjpeg
+include $(BUILD_EXECUTABLE)
