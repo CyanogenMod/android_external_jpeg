@@ -27,7 +27,11 @@
  */
 
 #if BITS_IN_JSAMPLE == 8
+#ifdef ANDROID_MIPS_IDCT
+typedef short DCTELEM;		/* 16 or 32 bits is fine */
+#else
 typedef int DCTELEM;		/* 16 or 32 bits is fine */
+#endif
 #else
 typedef INT32 DCTELEM;		/* must have 32 bits */
 #endif
