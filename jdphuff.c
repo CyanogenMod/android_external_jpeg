@@ -632,23 +632,6 @@ undoit:
 }
 
 /*
- * Save the current Huffman deocde position and the DC coefficients
- * for each component into bitstream_offset and dc_info[], respectively.
- */
-METHODDEF(void)
-get_huffman_decoder_configuration(j_decompress_ptr cinfo,
-        huffman_offset_data *offset)
-{
-  int i;
-  phuff_entropy_ptr entropy = (phuff_entropy_ptr) cinfo->entropy;
-  jpeg_get_huffman_decoder_configuration_progressive(cinfo, offset);
-  offset->EOBRUN = entropy->saved.EOBRUN;
-  for (i = 0; i < cinfo->comps_in_scan; i++)
-    offset->prev_dc[i] = entropy->saved.last_dc_val[i];
-}
-
-
-/*
  * Save the current Huffman decoder position and the bit buffer
  * into bitstream_offset and get_buffer, respectively.
  */
@@ -676,20 +659,20 @@ jpeg_get_huffman_decoder_configuration_progressive(j_decompress_ptr cinfo,
   offset->get_buffer = entropy->bitstate.get_buffer;
 }
 
-
 /*
- * Configure the Huffman decoder to decode the image
- * starting from (iMCU_row_offset, iMCU_col_offset).
+ * Save the current Huffman deocde position and the DC coefficients
+ * for each component into bitstream_offset and dc_info[], respectively.
  */
 METHODDEF(void)
-configure_huffman_decoder(j_decompress_ptr cinfo, huffman_offset_data offset)
+get_huffman_decoder_configuration(j_decompress_ptr cinfo,
+        huffman_offset_data *offset)
 {
   int i;
   phuff_entropy_ptr entropy = (phuff_entropy_ptr) cinfo->entropy;
-  jpeg_configure_huffman_decoder_progressive(cinfo, offset);
-  entropy->saved.EOBRUN = offset.EOBRUN;
+  jpeg_get_huffman_decoder_configuration_progressive(cinfo, offset);
+  offset->EOBRUN = entropy->saved.EOBRUN;
   for (i = 0; i < cinfo->comps_in_scan; i++)
-    entropy->saved.last_dc_val[i] = offset.prev_dc[i];
+    offset->prev_dc[i] = entropy->saved.last_dc_val[i];
 }
 
 /*
@@ -715,6 +698,21 @@ jpeg_configure_huffman_decoder_progressive(j_decompress_ptr cinfo,
 
   jset_input_stream_position_bit(cinfo, byte_offset,
           bit_in_bit_buffer, offset.get_buffer);
+}
+
+/*
+ * Configure the Huffman decoder to decode the image
+ * starting from (iMCU_row_offset, iMCU_col_offset).
+ */
+METHODDEF(void)
+configure_huffman_decoder(j_decompress_ptr cinfo, huffman_offset_data offset)
+{
+  int i;
+  phuff_entropy_ptr entropy = (phuff_entropy_ptr) cinfo->entropy;
+  jpeg_configure_huffman_decoder_progressive(cinfo, offset);
+  entropy->saved.EOBRUN = offset.EOBRUN;
+  for (i = 0; i < cinfo->comps_in_scan; i++)
+    entropy->saved.last_dc_val[i] = offset.prev_dc[i];
 }
 
 GLOBAL(void)
