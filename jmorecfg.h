@@ -22,7 +22,7 @@
 #ifdef ANDROID_RGB
 #define PACK_SHORT_565(r,g,b)  ((((r)<<8)&0xf800)|(((g)<<3)&0x7E0)|((b)>>3))
 #define PACK_TWO_PIXELS(l,r)   ((r<<16) | l)
-#define PACK_NEED_ALIGNMENT(ptr) (((int)(ptr))&3)
+#define PACK_NEED_ALIGNMENT(ptr) (((uintptr_t)(ptr))&3)
 #define WRITE_TWO_PIXELS(addr, pixels) do {     \
          ((INT16*)(addr))[0] = (pixels);        \
          ((INT16*)(addr))[1] = (pixels)>>16;    \
