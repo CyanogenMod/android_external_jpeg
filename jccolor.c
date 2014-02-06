@@ -302,7 +302,7 @@ grayscale_convert (j_compress_ptr cinfo,
 
 #ifdef ENABLE_ANDROID_NULL_CONVERT
 
-typedef unsigned long UINT32;
+typedef unsigned int UINT32;
 
 #define B0(n)   ((n) & 0xFF)
 #define B1(n)   (((n) >> 8) & 0xFF)
