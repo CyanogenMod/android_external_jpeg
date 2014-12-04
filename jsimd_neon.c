@@ -29,7 +29,6 @@
 #include "jinclude.h"
 #include "jpeglib.h"
 #include "jdct.h"
-#include <machine/cpu-features.h>
 
 
 #if defined(NV_ARM_NEON) && defined(__ARM_HAVE_NEON)

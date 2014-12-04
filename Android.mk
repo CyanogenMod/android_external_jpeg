@@ -11,7 +11,9 @@ LOCAL_SRC_FILES := \
     jdinput.c jdmainct.c jdmarker.c jdmaster.c jdmerge.c jdphuff.c \
     jdpostct.c jdsample.c jdtrans.c jerror.c jfdctflt.c jfdctfst.c \
     jfdctint.c jidctflt.c jidctfst.c jidctint.c jidctred.c jquant1.c \
-    jquant2.c jutils.c jmemmgr.c armv6_idct.S
+    jquant2.c jutils.c jmemmgr.c
+
+LOCAL_SRC_FILES_arm += armv6_idct.S
 
 ifeq (,$(TARGET_BUILD_APPS))
 # building against master
@@ -43,7 +45,7 @@ endif
 ifeq ($(strip $(TARGET_ARCH)),arm)
   ifeq ($(ARCH_ARM_HAVE_NEON),true)
     #use NEON accelerations
-    LOCAL_CFLAGS += -DNV_ARM_NEON
+    LOCAL_CFLAGS += -DNV_ARM_NEON -D__ARM_HAVE_NEON
     LOCAL_SRC_FILES += \
         jsimd_arm_neon.S \
         jsimd_neon.c
