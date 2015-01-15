@@ -121,6 +121,8 @@ LOCAL(int)
 get_ashmem(backing_store_ptr info, long total_bytes_needed)
 {
   char path[1024];
+  // FIXME: Does this name need to be unique? What happens if two jpegs
+  // are being decoded simultaneously in the same process?
   snprintf(path, 1023, "%d.tmp.ashmem", getpid());
   int fd = ashmem_create_region(path, total_bytes_needed);
   if (fd == -1) {
@@ -128,9 +130,16 @@ get_ashmem(backing_store_ptr info, long total_bytes_needed)
   }
   int err = ashmem_set_prot_region(fd, PROT_READ | PROT_WRITE);
   if (err) {
-      return -1;
+    close(fd);
+    return -1;
   }
-  info->addr = mmap(NULL, total_bytes_needed, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+  void* addr = mmap(NULL, total_bytes_needed, PROT_READ | PROT_WRITE,
+                    MAP_PRIVATE, fd, 0);
+  if (-1 == (long) addr) {
+    close(fd);
+    return -1;
+  }
+  info->addr = addr;
   info->size = total_bytes_needed;
   info->temp_file = fd;
   return fd;
