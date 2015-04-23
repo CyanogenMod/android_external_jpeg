@@ -11,27 +11,12 @@ LOCAL_SRC_FILES := \
     jdinput.c jdmainct.c jdmarker.c jdmaster.c jdmerge.c jdphuff.c \
     jdpostct.c jdsample.c jdtrans.c jerror.c jfdctflt.c jfdctfst.c \
     jfdctint.c jidctflt.c jidctfst.c jidctint.c jidctred.c jquant1.c \
-    jquant2.c jutils.c jmemmgr.c
+    jquant2.c jutils.c jmemmgr.c jmemnobs.c
 
 LOCAL_SRC_FILES_arm += armv6_idct.S
 
 # jsimd_arm_neon.S does not compile with clang.
 LOCAL_CLANG_ASFLAGS_arm += -no-integrated-as
-
-ifeq (,$(TARGET_BUILD_APPS))
-# building against master
-# use ashmem as libjpeg decoder's backing store
-LOCAL_CFLAGS += -DUSE_ANDROID_ASHMEM
-LOCAL_SRC_FILES += \
-    jmem-ashmem.c
-else
-# unbundled branch, built against NDK.
-LOCAL_SDK_VERSION := 17
-# the original android memory manager.
-# use sdcard as libjpeg decoder's backing store
-LOCAL_SRC_FILES += \
-    jmem-android.c
-endif
 
 LOCAL_CFLAGS += -DAVOID_TABLES
 LOCAL_CFLAGS += -O3 -fstrict-aliasing -fprefetch-loop-arrays
