@@ -18,6 +18,11 @@ LOCAL_SRC_FILES_arm += armv6_idct.S
 # jsimd_arm_neon.S does not compile with clang.
 LOCAL_CLANG_ASFLAGS_arm += -no-integrated-as
 
+ifneq (,$(TARGET_BUILD_APPS))
+# unbundled branch, built against NDK.
+LOCAL_SDK_VERSION := 17
+endif
+
 LOCAL_CFLAGS += -DAVOID_TABLES
 LOCAL_CFLAGS += -O3 -fstrict-aliasing -fprefetch-loop-arrays
 #LOCAL_CFLAGS += -march=armv6j
