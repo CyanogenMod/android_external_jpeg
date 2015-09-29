@@ -29,11 +29,13 @@
 #include "jinclude.h"
 #include "jpeglib.h"
 #include "jdct.h"
-#include <machine/cpu-features.h>
 
+#if (defined(NV_ARM_NEON) && defined(__ARM_HAVE_NEON)) || defined(__aarch64__)
 
-#if defined(NV_ARM_NEON) && defined(__ARM_HAVE_NEON)
-
+EXTERN(void) jsimd_ycc_extrgb_convert_neon
+        JPP((JDIMENSION out_width,
+             JSAMPIMAGE input_buf, JDIMENSION input_row,
+             JSAMPARRAY output_buf, int num_rows));
 EXTERN(void) jsimd_ycc_rgba8888_convert_neon
         JPP((JDIMENSION out_width,
              JSAMPIMAGE input_buf, JDIMENSION input_row,
@@ -42,6 +44,11 @@ EXTERN(void) jsimd_ycc_rgb565_convert_neon
         JPP((JDIMENSION out_width,
              JSAMPIMAGE input_buf, JDIMENSION input_row,
              JSAMPARRAY output_buf, int num_rows));
+
+EXTERN(void) jsimd_idct_islow_neon JPP((void * dct_table,
+                                        JCOEFPTR coef_block,
+                                        JSAMPARRAY output_buf,
+                                        JDIMENSION output_col));
 
 EXTERN(void) jsimd_idct_ifast_neon JPP((void * dct_table,
                                         JCOEFPTR coef_block,
@@ -57,6 +64,17 @@ EXTERN(void) jsimd_idct_4x4_neon JPP((void * dct_table,
                                         JCOEFPTR coef_block,
                                         JSAMPARRAY output_buf,
                                         JDIMENSION output_col));
+
+#ifdef __aarch64__
+GLOBAL(void)
+jsimd_ycc_rgb_convert (j_decompress_ptr cinfo,
+                       JSAMPIMAGE input_buf, JDIMENSION input_row,
+                       JSAMPARRAY output_buf, int num_rows)
+{
+    jsimd_ycc_extrgb_convert_neon(cinfo->output_width, input_buf,
+        input_row, output_buf, num_rows);
+}
+#endif
 
 GLOBAL(void)
 jsimd_ycc_rgba8888_convert (j_decompress_ptr cinfo,
@@ -83,6 +101,16 @@ jsimd_ycc_rgb565_convert (j_decompress_ptr cinfo,
     neonfct(cinfo->output_width, input_buf,
         input_row, output_buf, num_rows);
 }
+
+#ifdef __aarch64__
+GLOBAL(void)
+jsimd_idct_islow (j_decompress_ptr cinfo, jpeg_component_info * compptr,
+                JCOEFPTR coef_block, JSAMPARRAY output_buf,
+                JDIMENSION output_col)
+{
+    jsimd_idct_islow_neon(compptr->dct_table, coef_block, output_buf, output_col);
+}
+#endif
 
 GLOBAL(void)
 jsimd_idct_ifast (j_decompress_ptr cinfo, jpeg_component_info * compptr,
@@ -136,6 +164,23 @@ cap_neon_idct_4x4 (void)
 
     return 1;
 }
+
+#ifdef __aarch64__
+GLOBAL(int)
+cap_neon_idct_islow(void)
+{
+
+  if (  (DCTSIZE != 8)                  ||
+        (sizeof(JCOEF) != 2)            ||
+        (BITS_IN_JSAMPLE != 8)          ||
+        (sizeof(JDIMENSION) != 4)       ||
+        (sizeof(ISLOW_MULT_TYPE) != 2))
+    return 0;
+
+    return 1;
+
+}
+#endif
 
 GLOBAL(int)
 cap_neon_idct_ifast (void)
