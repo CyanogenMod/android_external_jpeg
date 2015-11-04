@@ -20,7 +20,7 @@
 #include "jpeglib.h"
 #include "jdct.h"		/* Private declarations for DCT subsystem */
 
-#ifdef NV_ARM_NEON
+#if defined(NV_ARM_NEON) || defined(__aarch64__)
 #include "jsimd_neon.h"
 #endif
 
@@ -137,7 +137,7 @@ start_pass (j_decompress_ptr cinfo)
       method = JDCT_ISLOW;	/* jidctred uses islow-style table */
       break;
     case 2:
-#if defined(NV_ARM_NEON) && defined(__ARM_HAVE_NEON)
+#if (defined(NV_ARM_NEON) && defined(__ARM_HAVE_NEON)) || defined(__aarch64__)
       if (cap_neon_idct_2x2()) {
         method_ptr = jsimd_idct_2x2;
       } else {
@@ -149,7 +149,7 @@ start_pass (j_decompress_ptr cinfo)
       method = JDCT_ISLOW;	/* jidctred uses islow-style table */
       break;
     case 4:
-#if defined(NV_ARM_NEON) && defined(__ARM_HAVE_NEON)
+#if (defined(NV_ARM_NEON) && defined(__ARM_HAVE_NEON)) || defined(__aarch64__)
 	  if (cap_neon_idct_4x4()) {
         method_ptr = jsimd_idct_4x4;
       } else {
@@ -186,13 +186,18 @@ start_pass (j_decompress_ptr cinfo)
 #else /* ANDROID_MIPS_IDCT */
 #ifdef DCT_ISLOW_SUPPORTED
       case JDCT_ISLOW:
+#if defined(__aarch64__)
+        if (cap_neon_idct_islow())
+          method_ptr = jsimd_idct_islow;
+        else
+#endif
 	method_ptr = jpeg_idct_islow;
 	method = JDCT_ISLOW;
 	break;
 #endif
 #ifdef DCT_IFAST_SUPPORTED
       case JDCT_IFAST:
-#if defined(NV_ARM_NEON) && defined(__ARM_HAVE_NEON)
+#if (defined(NV_ARM_NEON) && defined(__ARM_HAVE_NEON)) || defined(__aarch64__)
         if (cap_neon_idct_ifast()) {
           method_ptr = jsimd_idct_ifast;
         } else {
