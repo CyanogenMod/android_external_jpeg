@@ -67,7 +67,7 @@ EXTERN(void) jsimd_idct_4x4_neon JPP((void * dct_table,
                                         JDIMENSION output_col));
 
 #ifdef __aarch64__
-GLOBAL(void)
+HIDDEN(void)
 jsimd_ycc_rgb_convert (j_decompress_ptr cinfo,
                        JSAMPIMAGE input_buf, JDIMENSION input_row,
                        JSAMPARRAY output_buf, int num_rows)
@@ -77,7 +77,7 @@ jsimd_ycc_rgb_convert (j_decompress_ptr cinfo,
 }
 #endif
 
-GLOBAL(void)
+HIDDEN(void)
 jsimd_ycc_rgba8888_convert (j_decompress_ptr cinfo,
                        JSAMPIMAGE input_buf, JDIMENSION input_row,
                        JSAMPARRAY output_buf, int num_rows)
@@ -90,7 +90,7 @@ jsimd_ycc_rgba8888_convert (j_decompress_ptr cinfo,
         input_row, output_buf, num_rows);
 }
 
-GLOBAL(void)
+HIDDEN(void)
 jsimd_ycc_rgb565_convert (j_decompress_ptr cinfo,
                        JSAMPIMAGE input_buf, JDIMENSION input_row,
                        JSAMPARRAY output_buf, int num_rows)
@@ -104,7 +104,7 @@ jsimd_ycc_rgb565_convert (j_decompress_ptr cinfo,
 }
 
 #ifdef __aarch64__
-GLOBAL(void)
+HIDDEN(void)
 jsimd_idct_islow (j_decompress_ptr cinfo, jpeg_component_info * compptr,
                 JCOEFPTR coef_block, JSAMPARRAY output_buf,
                 JDIMENSION output_col)
@@ -113,7 +113,7 @@ jsimd_idct_islow (j_decompress_ptr cinfo, jpeg_component_info * compptr,
 }
 #endif
 
-GLOBAL(void)
+HIDDEN(void)
 jsimd_idct_ifast (j_decompress_ptr cinfo, jpeg_component_info * compptr,
                 JCOEFPTR coef_block, JSAMPARRAY output_buf,
                 JDIMENSION output_col)
@@ -122,7 +122,7 @@ jsimd_idct_ifast (j_decompress_ptr cinfo, jpeg_component_info * compptr,
 }
 
 
-GLOBAL(void)
+HIDDEN(void)
 jsimd_idct_2x2 (j_decompress_ptr cinfo, jpeg_component_info * compptr,
                 JCOEFPTR coef_block, JSAMPARRAY output_buf,
                 JDIMENSION output_col)
@@ -130,7 +130,7 @@ jsimd_idct_2x2 (j_decompress_ptr cinfo, jpeg_component_info * compptr,
     jsimd_idct_2x2_neon(compptr->dct_table, coef_block, output_buf, output_col);
 }
 
-GLOBAL(void)
+HIDDEN(void)
 jsimd_idct_4x4 (j_decompress_ptr cinfo, jpeg_component_info * compptr,
                 JCOEFPTR coef_block, JSAMPARRAY output_buf,
                 JDIMENSION output_col)
@@ -139,7 +139,7 @@ jsimd_idct_4x4 (j_decompress_ptr cinfo, jpeg_component_info * compptr,
 }
 
 
-GLOBAL(int)
+HIDDEN(int)
 cap_neon_idct_2x2 (void)
 {
   if (  (DCTSIZE != 8)              ||
@@ -152,7 +152,7 @@ cap_neon_idct_2x2 (void)
     return 1;
 }
 
-GLOBAL(int)
+HIDDEN(int)
 cap_neon_idct_4x4 (void)
 {
 
@@ -167,7 +167,7 @@ cap_neon_idct_4x4 (void)
 }
 
 #ifdef __aarch64__
-GLOBAL(int)
+HIDDEN(int)
 cap_neon_idct_islow(void)
 {
 
@@ -183,7 +183,7 @@ cap_neon_idct_islow(void)
 }
 #endif
 
-GLOBAL(int)
+HIDDEN(int)
 cap_neon_idct_ifast (void)
 {
 
@@ -199,7 +199,7 @@ cap_neon_idct_ifast (void)
 
 }
 
-GLOBAL(int)
+HIDDEN(int)
 cap_neon_ycc_rgb (void)
 {
 

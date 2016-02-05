@@ -215,6 +215,8 @@ typedef unsigned int JDIMENSION;
 #define GLOBAL(type)		type
 /* a reference to a GLOBAL function: */
 #define EXTERN(type)		extern type
+/* a reference to a function that is not suppose to be exported */
+#define HIDDEN(type)         __attribute__((visibility("hidden"))) type
 
 
 /* This macro is used to declare a "method", that is, a function pointer.
