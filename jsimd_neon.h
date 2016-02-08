@@ -36,52 +36,66 @@
 #error "ANDROID_ARMV6_IDCT and (NV_ARM_NEON or __arch64) are muturaly exclusive modes, both have been defined"
 #endif
 
-GLOBAL(void)
+HIDDEN(void)
 jsimd_idct_2x2 (j_decompress_ptr cinfo, jpeg_component_info * compptr,
                 JCOEFPTR coef_block, JSAMPARRAY output_buf,
                 JDIMENSION output_col);
 
-GLOBAL(void)
+HIDDEN(void)
 jsimd_idct_islow(j_decompress_ptr cinfo, jpeg_component_info * compptr,
                 JCOEFPTR coef_block, JSAMPARRAY output_buf,
                 JDIMENSION output_col);
 
-GLOBAL(void)
+HIDDEN(void)
 jsimd_idct_ifast (j_decompress_ptr cinfo, jpeg_component_info * compptr,
                 JCOEFPTR coef_block, JSAMPARRAY output_buf,
                 JDIMENSION output_col);
 
-GLOBAL(void)
+HIDDEN(void)
 jsimd_idct_4x4 (j_decompress_ptr cinfo, jpeg_component_info * compptr,
                 JCOEFPTR coef_block, JSAMPARRAY output_buf,
                 JDIMENSION output_col);
 
-GLOBAL(int)
+HIDDEN(void)
+jsimd_h2v2_downsample (j_compress_ptr cinfo, jpeg_component_info * compptr,
+                       JSAMPARRAY input_data, JSAMPARRAY output_data);
+
+HIDDEN(void)
+jsimd_h2v1_downsample (j_compress_ptr cinfo, jpeg_component_info * compptr,
+                       JSAMPARRAY input_data, JSAMPARRAY output_data);
+
+HIDDEN(int)
 cap_neon_idct_2x2 (void);
 
-GLOBAL(int)
+HIDDEN(int)
 cap_neon_idct_4x4 (void);
 
-GLOBAL(int)
+HIDDEN(int)
 cap_neon_idct_islow (void);
 
-GLOBAL(int)
+HIDDEN(int)
 cap_neon_idct_ifast (void);
 
-GLOBAL(int)
+HIDDEN(int)
 cap_neon_ycc_rgb (void);
 
-GLOBAL(void)
+HIDDEN(int)
+cap_neon_h2v1_downsample(void);
+
+HIDDEN(int)
+cap_neon_h2v2_downsample(void);
+
+HIDDEN(void)
 jsimd_ycc_rgb565_convert (j_decompress_ptr cinfo,
                        JSAMPIMAGE input_buf, JDIMENSION input_row,
                        JSAMPARRAY output_buf, int num_rows);
 
-GLOBAL(void)
+HIDDEN(void)
 jsimd_ycc_rgb_convert (j_decompress_ptr cinfo,
                        JSAMPIMAGE input_buf, JDIMENSION input_row,
                        JSAMPARRAY output_buf, int num_rows);
 
-GLOBAL(void)
+HIDDEN(void)
 jsimd_ycc_rgba8888_convert (j_decompress_ptr cinfo,
                        JSAMPIMAGE input_buf, JDIMENSION input_row,
                        JSAMPARRAY output_buf, int num_rows);

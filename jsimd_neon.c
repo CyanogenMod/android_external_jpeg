@@ -66,6 +66,16 @@ EXTERN(void) jsimd_idct_4x4_neon JPP((void * dct_table,
                                         JSAMPARRAY output_buf,
                                         JDIMENSION output_col));
 
+EXTERN(void) jsimd_h2v2_downsample_neon
+        (JDIMENSION image_width, int max_v_samp_factor,
+         JDIMENSION v_samp_factor, JDIMENSION width_blocks,
+         JSAMPARRAY input_data, JSAMPARRAY output_data);
+
+EXTERN(void) jsimd_h2v1_downsample_neon
+        (JDIMENSION image_width, int max_v_samp_factor,
+         JDIMENSION v_samp_factor, JDIMENSION width_blocks,
+         JSAMPARRAY input_data, JSAMPARRAY output_data);
+
 #ifdef __aarch64__
 HIDDEN(void)
 jsimd_ycc_rgb_convert (j_decompress_ptr cinfo,
@@ -180,6 +190,52 @@ cap_neon_idct_islow(void)
 
     return 1;
 
+}
+
+HIDDEN(int)
+cap_neon_h2v2_downsample (void)
+{
+    /* The code is optimised for these values only */
+    if (BITS_IN_JSAMPLE != 8)
+        return 0;
+    if (DCTSIZE != 8)
+        return 0;
+    if (sizeof(JDIMENSION) != 4)
+        return 0;
+
+    return 1;
+}
+
+HIDDEN(int)
+cap_neon_h2v1_downsample (void)
+{
+    /* The code is optimised for these values only */
+    if (BITS_IN_JSAMPLE != 8)
+        return 0;
+    if (DCTSIZE != 8)
+        return 0;
+    if (sizeof(JDIMENSION) != 4)
+        return 0;
+
+    return 1;
+}
+
+HIDDEN(void)
+jsimd_h2v2_downsample (j_compress_ptr cinfo, jpeg_component_info * compptr,
+                       JSAMPARRAY input_data, JSAMPARRAY output_data)
+{
+  jsimd_h2v2_downsample_neon(cinfo->image_width, cinfo->max_v_samp_factor,
+                             compptr->v_samp_factor, compptr->width_in_blocks,
+                             input_data, output_data);
+}
+
+HIDDEN(void)
+jsimd_h2v1_downsample (j_compress_ptr cinfo, jpeg_component_info * compptr,
+                       JSAMPARRAY input_data, JSAMPARRAY output_data)
+{
+  jsimd_h2v1_downsample_neon(cinfo->image_width, cinfo->max_v_samp_factor,
+                             compptr->v_samp_factor, compptr->width_in_blocks,
+                             input_data, output_data);
 }
 #endif
 

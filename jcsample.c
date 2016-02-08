@@ -49,6 +49,9 @@
 #include "jinclude.h"
 #include "jpeglib.h"
 
+#if defined(__aarch64__)
+#include "jsimd_neon.h"
+#endif
 
 /* Pointer to routine to downsample a single component */
 typedef JMETHOD(void, downsample1_ptr,
@@ -494,7 +497,12 @@ jinit_downsampler (j_compress_ptr cinfo)
     } else if (compptr->h_samp_factor * 2 == cinfo->max_h_samp_factor &&
 	       compptr->v_samp_factor == cinfo->max_v_samp_factor) {
       smoothok = FALSE;
-      downsample->methods[ci] = h2v1_downsample;
+#if defined(__aarch64__)
+      if (cap_neon_h2v1_downsample())
+        downsample->methods[ci] = jsimd_h2v1_downsample;
+      else
+#endif
+        downsample->methods[ci] = h2v1_downsample;
     } else if (compptr->h_samp_factor * 2 == cinfo->max_h_samp_factor &&
 	       compptr->v_samp_factor * 2 == cinfo->max_v_samp_factor) {
 #ifdef INPUT_SMOOTHING_SUPPORTED
@@ -503,7 +511,14 @@ jinit_downsampler (j_compress_ptr cinfo)
 	downsample->pub.need_context_rows = TRUE;
       } else
 #endif
-	downsample->methods[ci] = h2v2_downsample;
+      {
+#if defined(__aarch64__)
+        if (cap_neon_h2v2_downsample())
+          downsample->methods[ci] = jsimd_h2v2_downsample;
+        else
+#endif
+          downsample->methods[ci] = h2v2_downsample;
+      }
     } else if ((cinfo->max_h_samp_factor % compptr->h_samp_factor) == 0 &&
 	       (cinfo->max_v_samp_factor % compptr->v_samp_factor) == 0) {
       smoothok = FALSE;
